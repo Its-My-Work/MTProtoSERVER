@@ -22,6 +22,10 @@
                 <span class="nav-icon">👥</span>
                 <span>Пользователи</span>
             </a>
+            <a href="/proxies" class="nav-link {% if request.url.path == '/proxies' %}active{% endif %}">
+                <span class="nav-icon">🌐</span>
+                <span>Прокси</span>
+            </a>
             <a href="/stats" class="nav-link {% if request.url.path == '/stats' %}active{% endif %}">
                 <span class="nav-icon">📈</span>
                 <span>Статистика</span>

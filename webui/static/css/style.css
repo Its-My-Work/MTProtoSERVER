@@ -422,3 +422,79 @@ body {
     .stats-grid { grid-template-columns: 1fr; }
     .settings-grid { grid-template-columns: 1fr; }
 }
+
+/* Proxies Grid */
+.proxies-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 20px;
+}
+
+.proxy-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    transition: all 0.2s;
+}
+
+.proxy-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+}
+
+.proxy-card.proxy-active { border-left: 4px solid var(--success); }
+.proxy-card.proxy-inactive { border-left: 4px solid var(--danger); opacity: 0.7; }
+
+.proxy-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.proxy-header h4 {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.proxy-details {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.proxy-details div {
+    display: flex;
+    justify-content: space-between;
+}
+
+.proxy-details span {
+    color: var(--text-secondary);
+}
+
+.proxy-card .proxy-link-box {
+    margin-top: 8px;
+}
+
+/* Tips */
+.tips-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tip-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.tip-icon { font-size: 18px; flex-shrink: 0; }
+

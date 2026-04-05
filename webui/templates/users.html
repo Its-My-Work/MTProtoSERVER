@@ -10,6 +10,11 @@
     <h3>➕ Добавить пользователя</h3>
     <form id="add-user-form" class="form-inline">
         <input type="text" name="label" placeholder="Имя пользователя" required class="input">
+        <select name="proxy_id" class="input">
+            {% for proxy in proxies %}
+            <option value="{{ proxy.id }}">{{ proxy.label }} (порт {{ proxy.port }}, {{ proxy.domain }})</option>
+            {% endfor %}
+        </select>
         <button type="submit" class="btn btn-primary">Добавить</button>
     </form>
     <div id="add-result" class="result-box" style="display:none;"></div>
@@ -23,6 +28,7 @@
                 <tr>
                     <th>ID</th>
                     <th>Имя</th>
+                    <th>Прокси</th>
                     <th>Статус</th>
                     <th>Секрет</th>
                     <th>Трафик IN</th>
@@ -35,6 +41,15 @@
                 <tr>
                     <td>{{ user.id }}</td>
                     <td><strong>{{ user.label }}</strong></td>
+                    <td>
+                        {% set ns = namespace(proxy_label="N/A") %}
+                        {% for proxy in proxies %}
+                        {% if proxy.id == user.proxy_id %}
+                        {% set ns.proxy_label = proxy.label %}
+                        {% endif %}
+                        {% endfor %}
+                        {{ ns.proxy_label }}
+                    </td>
                     <td>
                         {% if user.enabled %}
                         <span class="badge badge-success">Активен</span>

@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import json
 import os
 import subprocess
+import secrets as sec
 import psutil
 
 app = FastAPI(title="MTProtoSERVER Web UI")
@@ -16,6 +17,7 @@ DATA_DIR = "/app/data"
 CONFIG_DIR = "/app/config"
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
+PROXIES_FILE = os.path.join(DATA_DIR, "proxies.json")
 
 def load_json(filepath):
     try:
@@ -37,13 +39,14 @@ def get_users():
 def save_users(users):
     save_json(USERS_FILE, users)
 
-def get_proxy_link(secret=None):
-    s = get_settings()
-    ip = s.get('proxy_ip', '0.0.0.0')
-    port = s.get('proxy_port', 443)
-    if secret:
-        return f"tg://proxy?server={ip}&port={port}&secret={secret}"
-    return f"tg://proxy?server={ip}&port={port}"
+def get_proxies():
+    return load_json(PROXIES_FILE)
+
+def save_proxies(proxies):
+    save_json(PROXIES_FILE, proxies)
+
+def get_proxy_link(ip, port, secret):
+    return f"tg://proxy?server={ip}&port={port}&secret={secret}"
 
 def get_proxy_stats():
     try:
@@ -70,10 +73,13 @@ def get_system_info():
 async def dashboard(request: Request):
     settings = get_settings()
     users_data = get_users()
+    proxies_data = get_proxies()
     system = get_system_info()
     users = users_data.get('users', [])
+    proxies = proxies_data.get('proxies', [])
     active_users = len([u for u in users if u.get('enabled', True)])
     total_traffic = sum(u.get('traffic_in', 0) + u.get('traffic_out', 0) for u in users)
+    active_proxies = len([p for p in proxies if p.get('enabled', True)])
 
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -82,29 +88,47 @@ async def dashboard(request: Request):
         "active_users": active_users,
         "total_traffic": total_traffic,
         "system": system,
-        "proxy_link": get_proxy_link()
+        "proxies": proxies,
+        "active_proxies": active_proxies,
+        "proxy_count": len(proxies)
     })
 
 @app.get("/users", response_class=HTMLResponse)
 async def users_page(request: Request):
     users_data = get_users()
+    proxies_data = get_proxies()
     users = users_data.get('users', [])
+    proxies = proxies_data.get('proxies', [])
     settings = get_settings()
     return templates.TemplateResponse("users.html", {
         "request": request,
         "users": users,
-        "settings": settings,
-        "proxy_link": get_proxy_link()
+        "proxies": proxies,
+        "settings": settings
+    })
+
+@app.get("/proxies", response_class=HTMLResponse)
+async def proxies_page(request: Request):
+    proxies_data = get_proxies()
+    proxies = proxies_data.get('proxies', [])
+    settings = get_settings()
+    return templates.TemplateResponse("proxies.html", {
+        "request": request,
+        "proxies": proxies,
+        "settings": settings
     })
 
 @app.get("/stats", response_class=HTMLResponse)
 async def stats_page(request: Request):
     users_data = get_users()
+    proxies_data = get_proxies()
     users = users_data.get('users', [])
+    proxies = proxies_data.get('proxies', [])
     system = get_system_info()
     return templates.TemplateResponse("stats.html", {
         "request": request,
         "users": users,
+        "proxies": proxies,
         "system": system
     })
 
@@ -130,16 +154,29 @@ async def diagnostics_page(request: Request):
 async def add_user(request: Request):
     form = await request.form()
     label = form.get('label', 'user')
+    proxy_id = int(form.get('proxy_id', 1))
+    proxies_data = get_proxies()
+    proxies = proxies_data.get('proxies', [])
+
+    target_proxy = None
+    for p in proxies:
+        if p['id'] == proxy_id:
+            target_proxy = p
+            break
+
+    if not target_proxy:
+        return JSONResponse({'status': 'error', 'message': 'Прокси не найден'}, status_code=400)
+
     users_data = get_users()
     users = users_data.get('users', [])
     next_id = users_data.get('next_id', 1)
 
-    import secrets
-    new_secret = secrets.token_hex(16)
+    new_secret = sec.token_hex(16)
 
     new_user = {
         'id': next_id,
         'label': label,
+        'proxy_id': proxy_id,
         'secret': new_secret,
         'enabled': True,
         'created_at': 'now',
@@ -157,7 +194,12 @@ async def add_user(request: Request):
     users_data['next_id'] = next_id + 1
     save_users(users_data)
 
-    return JSONResponse({'status': 'ok', 'secret': new_secret, 'link': get_proxy_link(new_secret)})
+    link = get_proxy_link(
+        get_settings().get('proxy_ip', '0.0.0.0'),
+        target_proxy['port'],
+        target_proxy['secret']
+    )
+    return JSONResponse({'status': 'ok', 'secret': new_secret, 'link': link})
 
 @app.post("/api/users/{user_id}/toggle")
 async def toggle_user(user_id: int):
@@ -179,16 +221,84 @@ async def delete_user(user_id: int):
     save_users(users_data)
     return JSONResponse({'status': 'ok'})
 
+@app.post("/api/proxies/add")
+async def add_proxy(request: Request):
+    form = await request.form()
+    label = form.get('label', 'proxy')
+    port = int(form.get('port', 443))
+    domain = form.get('domain', 'cloudflare.com')
+
+    proxies_data = get_proxies()
+    proxies = proxies_data.get('proxies', [])
+    next_id = proxies_data.get('next_id', 1)
+
+    domain_hex = domain.encode().hex()
+    random_part = sec.token_hex(14)
+    secret = f"ee{random_part}{domain_hex}"
+
+    new_proxy = {
+        'id': next_id,
+        'label': label,
+        'port': port,
+        'domain': domain,
+        'secret': secret,
+        'enabled': True,
+        'created_at': 'now',
+        'connections': 0,
+        'traffic_in': 0,
+        'traffic_out': 0
+    }
+
+    proxies.append(new_proxy)
+    proxies_data['proxies'] = proxies
+    proxies_data['next_id'] = next_id + 1
+    save_proxies(proxies_data)
+
+    # Обновляем proxy_count в settings
+    settings = get_settings()
+    settings['proxy_count'] = len(proxies)
+    save_json(SETTINGS_FILE, settings)
+
+    link = get_proxy_link(settings.get('proxy_ip', '0.0.0.0'), port, secret)
+    return JSONResponse({'status': 'ok', 'secret': secret, 'link': link})
+
+@app.post("/api/proxies/{proxy_id}/toggle")
+async def toggle_proxy(proxy_id: int):
+    proxies_data = get_proxies()
+    proxies = proxies_data.get('proxies', [])
+    for p in proxies:
+        if p['id'] == proxy_id:
+            p['enabled'] = not p.get('enabled', True)
+            break
+    save_proxies(proxies_data)
+    return JSONResponse({'status': 'ok'})
+
+@app.post("/api/proxies/{proxy_id}/delete")
+async def delete_proxy(proxy_id: int):
+    proxies_data = get_proxies()
+    proxies = proxies_data.get('proxies', [])
+    proxies = [p for p in proxies if p['id'] != proxy_id]
+    proxies_data['proxies'] = proxies
+
+    settings = get_settings()
+    settings['proxy_count'] = len(proxies)
+    save_json(SETTINGS_FILE, settings)
+
+    save_proxies(proxies_data)
+    return JSONResponse({'status': 'ok'})
+
 @app.get("/api/status")
 async def api_status():
     settings = get_settings()
     system = get_system_info()
     users_data = get_users()
+    proxies_data = get_proxies()
     users = users_data.get('users', [])
+    proxies = proxies_data.get('proxies', [])
     return JSONResponse({
         'proxy_ip': settings.get('proxy_ip'),
-        'proxy_port': settings.get('proxy_port'),
-        'fake_domain': settings.get('fake_domain'),
+        'proxy_count': len(proxies),
+        'active_proxies': len([p for p in proxies if p.get('enabled')]),
         'users_count': len(users),
         'active_users': len([u for u in users if u.get('enabled')]),
         'system': system
@@ -197,8 +307,12 @@ async def api_status():
 @app.get("/api/metrics")
 async def api_metrics():
     users_data = get_users()
+    proxies_data = get_proxies()
     users = users_data.get('users', [])
-    metrics = "# HELP mtproto_users_total Total users\n# TYPE mtproto_users_total gauge\n"
+    proxies = proxies_data.get('proxies', [])
+    metrics = "# HELP mtproto_proxies_total Total proxies\n# TYPE mtproto_proxies_total gauge\n"
+    metrics += f"mtproto_proxies_total {len(proxies)}\n"
+    metrics += "# HELP mtproto_users_total Total users\n# TYPE mtproto_users_total gauge\n"
     metrics += f"mtproto_users_total {len(users)}\n"
     metrics += "# HELP mtproto_users_active Active users\n# TYPE mtproto_users_active gauge\n"
     metrics += f"mtproto_users_active {len([u for u in users if u.get('enabled')])}\n"

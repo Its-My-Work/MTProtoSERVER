@@ -45,6 +45,11 @@ ADMIN_CHAT_ID=""
 PROXY_SECRET=""
 SERVER_IP=""
 WEBUI_PORT=8080
+PROXY_COUNT=1
+declare -a PROXY_PORTS=()
+declare -a PROXY_DOMAINS=()
+declare -a PROXY_SECRETS=()
+declare -a PROXY_LABELS=()
 
 # ============================================================
 # Утилиты
@@ -217,57 +222,100 @@ step_proxy_config() {
     print_step "3" "Настройка MTProto прокси"
 
     echo -e "${CYAN}${E_SHIELD}  FakeTLS — Маскировка под HTTPS трафик${NC}"
-    echo -e "   Прокси будет работать на порту 443"
-    echo -e "   Трафик маскируется под обычный HTTPS к выбранному домену"
+    echo -e "   Прокси будет маскироваться под обычный HTTPS к выбранному домену"
     echo -e "   Для DPI это выглядит как посещение обычного сайта"
+    echo -e "   Вы можете создать несколько прокси на разных портах с разными доменами"
     echo ""
 
-    # Выбор домена
-    echo -e "${WHITE}Доступные домены для маскировки:${NC}"
-    echo -e "  1) cloudflare.com  (рекомендуется)"
-    echo -e "  2) 1c.ru"
-    echo -e "  3) sberbank.ru"
-    echo -e "  4) yandex.ru"
-    echo -e "  5) mail.ru"
-    echo -e "  6) vk.com"
-    echo -e "  7) gosuslugi.ru"
-    echo -e "  8) Ввести свой домен"
+    # Сколько прокси создать
+    read -p "Сколько прокси серверов создать? [1-10] (по умолчанию 1): " proxy_count_input
+    PROXY_COUNT=${proxy_count_input:-1}
+    if [ "$PROXY_COUNT" -lt 1 ]; then PROXY_COUNT=1; fi
+    if [ "$PROXY_COUNT" -gt 10 ]; then PROXY_COUNT=10; fi
+    log_ok "Будет создано прокси: $PROXY_COUNT"
     echo ""
 
-    read -p "Выберите домен [1-8] (по умолчанию 1): " domain_choice
-    domain_choice=${domain_choice:-1}
+    for i in $(seq 1 $PROXY_COUNT); do
+        print_sep
+        echo -e "${WHITE}${E_STAR}  Прокси #${i} из ${PROXY_COUNT}${NC}"
+        print_sep
+        echo ""
 
-    case $domain_choice in
-        1) FAKE_DOMAIN="cloudflare.com" ;;
-        2) FAKE_DOMAIN="1c.ru" ;;
-        3) FAKE_DOMAIN="sberbank.ru" ;;
-        4) FAKE_DOMAIN="yandex.ru" ;;
-        5) FAKE_DOMAIN="mail.ru" ;;
-        6) FAKE_DOMAIN="vk.com" ;;
-        7) FAKE_DOMAIN="gosuslugi.ru" ;;
-        8)
-            read -p "Введите домен для маскировки: " FAKE_DOMAIN
-            ;;
-        *) FAKE_DOMAIN="cloudflare.com" ;;
-    esac
+        # Метка
+        read -p "Метка прокси (например: main, backup, friends): " proxy_label
+        proxy_label=${proxy_label:-"proxy${i}"}
+        PROXY_LABELS+=("$proxy_label")
+        log_ok "Метка: $proxy_label"
+        echo ""
 
-    log_ok "Домен маскировки: ${E_NET} $FAKE_DOMAIN"
-    echo ""
+        # Выбор домена
+        echo -e "${WHITE}Доступные домены для маскировки:${NC}"
+        echo -e "  1) cloudflare.com  (рекомендуется)"
+        echo -e "  2) 1c.ru"
+        echo -e "  3) sberbank.ru"
+        echo -e "  4) yandex.ru"
+        echo -e "  5) mail.ru"
+        echo -e "  6) vk.com"
+        echo -e "  7) gosuslugi.ru"
+        echo -e "  8) Ввести свой домен"
+        echo ""
 
-    # Порт прокси
-    read -p "Порт прокси [443]: " port_input
-    PROXY_PORT=${port_input:-443}
-    log_ok "Порт прокси: $PROXY_PORT"
-    echo ""
+        read -p "Выберите домен для прокси #${i} [1-8] (по умолчанию 1): " domain_choice
+        domain_choice=${domain_choice:-1}
+
+        case $domain_choice in
+            1) current_domain="cloudflare.com" ;;
+            2) current_domain="1c.ru" ;;
+            3) current_domain="sberbank.ru" ;;
+            4) current_domain="yandex.ru" ;;
+            5) current_domain="mail.ru" ;;
+            6) current_domain="vk.com" ;;
+            7) current_domain="gosuslugi.ru" ;;
+            8)
+                read -p "Введите домен для маскировки: " current_domain
+                ;;
+            *) current_domain="cloudflare.com" ;;
+        esac
+
+        PROXY_DOMAINS+=("$current_domain")
+        log_ok "Домен маскировки #${i}: ${E_NET} $current_domain"
+        echo ""
+
+        # Порт прокси
+        default_port=$((443 + i - 1))
+        read -p "Порт для прокси #${i} [${default_port}]: " port_input
+        current_port=${port_input:-$default_port}
+
+        # Проверка что порт не занят
+        while ss -tlnp 2>/dev/null | grep -q ":${current_port} "; do
+            log_warn "Порт ${current_port} уже занят!"
+            read -p "Введите другой порт: " current_port
+        done
+
+        PROXY_PORTS+=("$current_port")
+        log_ok "Порт прокси #${i}: $current_port"
+        echo ""
+
+        # Генерация секрета
+        current_secret=""
+        local domain_hex=$(echo -n "$current_domain" | xxd -p | tr -d '\n')
+        local random_part=$(openssl rand -hex 14)
+        current_secret="ee${random_part}${domain_hex}"
+        PROXY_SECRETS+=("$current_secret")
+        log_ok "FakeTLS секрет #${i} сгенерирован ${E_KEY}"
+        echo ""
+    done
+
+    # Первый прокси — основной
+    PROXY_PORT="${PROXY_PORTS[0]}"
+    FAKE_DOMAIN="${PROXY_DOMAINS[0]}"
+    PROXY_SECRET="${PROXY_SECRETS[0]}"
 
     # Порт Web UI
     read -p "Порт Web UI [8080]: " webui_input
     WEBUI_PORT=${webui_input:-8080}
     log_ok "Порт Web UI: $WEBUI_PORT"
     echo ""
-
-    # Генерация секрета
-    generate_ee_secret "$FAKE_DOMAIN"
 
     read -p "Нажмите Enter для продолжения..."
 }
@@ -332,34 +380,51 @@ step_create_config() {
     mkdir -p "$INSTALL_DIR/config"
     mkdir -p "$INSTALL_DIR/data"
 
-    # Генерация docker-compose.yml
+    # Генерация docker-compose.yml с поддержкой нескольких прокси
     log_info "Создание docker-compose.yml..."
-    cat > "$INSTALL_DIR/docker-compose.yml" << COMPOSE_EOF
+
+    # Начало файла
+    cat > "$INSTALL_DIR/docker-compose.yml" << COMPOSE_HEADER_EOF
 version: '3.8'
 
 services:
-  mtproxy:
+COMPOSE_HEADER_EOF
+
+    # Добавляем каждый прокси
+    for i in $(seq 0 $((PROXY_COUNT - 1))); do
+        local p_port="${PROXY_PORTS[$i]}"
+        local p_secret="${PROXY_SECRETS[$i]}"
+        local p_label="${PROXY_LABELS[$i]}"
+        local container_name="mtproto-proxy-${p_label}"
+
+        cat >> "$INSTALL_DIR/docker-compose.yml" << PROXY_EOF
+  mtproxy-${p_label}:
     image: nineseconds/mtg:2
-    container_name: mtproto-proxy
+    container_name: ${container_name}
     restart: unless-stopped
     ports:
-      - "${PROXY_PORT}:${PROXY_PORT}"
+      - "${p_port}:${p_port}"
     command: >
       simple-run
-      -a ${PROXY_SECRET}
+      -a ${p_secret}
       --prefer-ip=prefer-ipv4
-      0.0.0.0:${PROXY_PORT}
+      0.0.0.0:${p_port}
     volumes:
-      - ./data/mtproxy:/data
+      - ./data/mtproxy-${p_label}:/data
     networks:
       - mtproto-net
     healthcheck:
-      test: ["CMD", "ss", "-tlnp", "sport", "=:${PROXY_PORT}"]
+      test: ["CMD", "ss", "-tlnp", "sport", "=:${p_port}"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
+PROXY_EOF
+    done
+
+    # Web UI
+    cat >> "$INSTALL_DIR/docker-compose.yml" << WEBUI_EOF
   webui:
     build: ./webui
     container_name: mtproto-webui
@@ -372,15 +437,15 @@ services:
       - ./mtproxy:/app/mtproxy
     environment:
       - PROXY_IP=${SERVER_IP}
-      - PROXY_PORT=${PROXY_PORT}
-      - FAKE_DOMAIN=${FAKE_DOMAIN}
+      - PROXY_COUNT=${PROXY_COUNT}
     depends_on:
-      - mtproxy
+$(for i in $(seq 0 $((PROXY_COUNT - 1))); do echo "      - mtproxy-${PROXY_LABELS[$i]}"; done)
     networks:
       - mtproto-net
 
-COMPOSE_EOF
+WEBUI_EOF
 
+    # Bot
     if [[ "$BOT_ENABLED" == "yes" ]]; then
         cat >> "$INSTALL_DIR/docker-compose.yml" << BOT_EOF
   bot:
@@ -394,30 +459,30 @@ COMPOSE_EOF
       - BOT_TOKEN=${BOT_TOKEN}
       - ADMIN_CHAT_ID=${ADMIN_CHAT_ID}
       - PROXY_IP=${SERVER_IP}
-      - PROXY_PORT=${PROXY_PORT}
-      - FAKE_DOMAIN=${FAKE_DOMAIN}
-      - PROXY_SECRET=${PROXY_SECRET}
+      - PROXY_COUNT=${PROXY_COUNT}
     depends_on:
-      - mtproxy
+$(for i in $(seq 0 $((PROXY_COUNT - 1))); do echo "      - mtproxy-${PROXY_LABELS[$i]}"; done)
     networks:
       - mtproto-net
 
 BOT_EOF
     fi
 
+    # Networks
     cat >> "$INSTALL_DIR/docker-compose.yml" << NET_EOF
 networks:
   mtproto-net:
     driver: bridge
 NET_EOF
 
-    log_ok "docker-compose.yml создан"
+    log_ok "docker-compose.yml создан с ${PROXY_COUNT} прокси"
 
-    # Генерация конфига mtproxy
+    # Генерация конфига mtproxy (для первого прокси)
     log_info "Создание конфигурации прокси..."
     cat > "$INSTALL_DIR/mtproxy/config.toml" << MTCONF_EOF
 # MTProto Proxy Configuration
 # Generated: $(date '+%Y-%m-%d %H:%M:%S')
+# Proxies: ${PROXY_COUNT}
 
 [general]
 bind_to = "0.0.0.0:${PROXY_PORT}"
@@ -438,7 +503,66 @@ enabled = true
 stats_file = "/data/stats.json"
 MTCONF_EOF
 
+    # Конфиги для дополнительных прокси
+    for i in $(seq 1 $((PROXY_COUNT - 1))); do
+        local p_port="${PROXY_PORTS[$i]}"
+        local p_secret="${PROXY_SECRETS[$i]}"
+        local p_domain="${PROXY_DOMAINS[$i]}"
+        local p_label="${PROXY_LABELS[$i]}"
+        mkdir -p "$INSTALL_DIR/mtproxy/${p_label}"
+        cat > "$INSTALL_DIR/mtproxy/${p_label}/config.toml" << MTCONF2_EOF
+# MTProto Proxy: ${p_label}
+# Generated: $(date '+%Y-%m-%d %H:%M:%S')
+
+[general]
+bind_to = "0.0.0.0:${p_port}"
+secret = "${p_secret}"
+fake_tls_domain = "${p_domain}"
+prefer_ip = "prefer-ipv4"
+
+[anti_replay]
+enabled = true
+max_size = 16384
+
+[timeouts]
+inactivity = 300
+keepalive = 60
+
+[stats]
+enabled = true
+stats_file = "/data/stats.json"
+MTCONF2_EOF
+    done
+
     log_ok "Конфигурация прокси создана"
+
+    # Создание файла прокси-инстансов
+    log_info "Создание файла прокси-инстансов..."
+    echo "{" > "$INSTALL_DIR/data/proxies.json"
+    echo '    "proxies": [' >> "$INSTALL_DIR/data/proxies.json"
+    for i in $(seq 0 $((PROXY_COUNT - 1))); do
+        local comma=""
+        if [ $i -lt $((PROXY_COUNT - 1)) ]; then comma=","; fi
+        cat >> "$INSTALL_DIR/data/proxies.json" << PENTRY_EOF
+        {
+            "id": $((i + 1)),
+            "label": "${PROXY_LABELS[$i]}",
+            "port": ${PROXY_PORTS[$i]},
+            "domain": "${PROXY_DOMAINS[$i]}",
+            "secret": "${PROXY_SECRETS[$i]}",
+            "enabled": true,
+            "created_at": "$(date '+%Y-%m-%d %H:%M:%S')",
+            "connections": 0,
+            "traffic_in": 0,
+            "traffic_out": 0
+        }${comma}
+PENTRY_EOF
+    done
+    echo '    ],' >> "$INSTALL_DIR/data/proxies.json"
+    echo "    \"next_id\": $((PROXY_COUNT + 1))" >> "$INSTALL_DIR/data/proxies.json"
+    echo "}" >> "$INSTALL_DIR/data/proxies.json"
+
+    log_ok "Файл прокси-инстансов создан (${PROXY_COUNT} прокси)"
 
     # Создание пользователей по умолчанию
     log_info "Создание файла пользователей..."
@@ -448,6 +572,7 @@ MTCONF_EOF
         {
             "id": 1,
             "label": "admin",
+            "proxy_id": 1,
             "secret": "${PROXY_SECRET}",
             "enabled": true,
             "created_at": "$(date '+%Y-%m-%d %H:%M:%S')",
@@ -473,6 +598,7 @@ USERS_EOF
     "proxy_port": ${PROXY_PORT},
     "fake_domain": "${FAKE_DOMAIN}",
     "webui_port": ${WEBUI_PORT},
+    "proxy_count": ${PROXY_COUNT},
     "bot_enabled": ${BOT_ENABLED},
     "bot_token": "${BOT_TOKEN}",
     "admin_chat_id": "${ADMIN_CHAT_ID}",
@@ -686,9 +812,14 @@ step_summary() {
     print_sep
     echo ""
 
-    echo -e "${WHITE}${E_STAR}  ССЫЛКА ДЛЯ ПОДКЛЮЧЕНИЯ:${NC}"
-    echo -e "${CYAN}   tg://proxy?server=${SERVER_IP}&port=${PROXY_PORT}&secret=${PROXY_SECRET}${NC}"
+    echo -e "${WHITE}${E_STAR}  ССЫЛКИ ДЛЯ ПОДКЛЮЧЕНИЯ (${PROXY_COUNT} прокси):${NC}"
     echo ""
+    for i in $(seq 0 $((PROXY_COUNT - 1))); do
+        echo -e "  ${E_ARROW} ${CYAN}${PROXY_LABELS[$i]}${NC}"
+        echo -e "     Порт: ${PROXY_PORTS[$i]} | Домен: ${PROXY_DOMAINS[$i]}"
+        echo -e "     ${CYAN}tg://proxy?server=${SERVER_IP}&port=${PROXY_PORTS[$i]}&secret=${PROXY_SECRETS[$i]}${NC}"
+        echo ""
+    done
 
     echo -e "${WHITE}${E_NET}  Web Панель управления:${NC}"
     echo -e "${CYAN}   http://${SERVER_IP}:${WEBUI_PORT}${NC}"
@@ -711,12 +842,15 @@ step_summary() {
     echo -e "   ${E_ARROW} Остановка:           ${CYAN}cd $INSTALL_DIR && docker compose down${NC}"
     echo -e "   ${E_ARROW} Обновление:          ${CYAN}cd $INSTALL_DIR && docker compose pull && docker compose up -d${NC}"
     echo -e "   ${E_ARROW} Статус:              ${CYAN}cd $INSTALL_DIR && docker compose ps${NC}"
+    echo -e "   ${E_ARROW} Добавить прокси:     ${CYAN}bash $INSTALL_DIR/scripts/add-proxy.sh${NC}"
+    echo -e "   ${E_ARROW} Удалить прокси:      ${CYAN}bash $INSTALL_DIR/scripts/remove-proxy.sh <label>${NC}"
     echo ""
 
     echo -e "${WHITE}${E_SHIELD}  Безопасность:${NC}"
-    echo -e "   ${E_WARN}  Не публикуйте ссылку на прокси!"
-    echo -e "   ${E_WARN}  Домен маскировки: ${FAKE_DOMAIN}"
-    echo -e "   ${E_WARN}  Порт: ${PROXY_PORT} (должен быть открыт в файрволе)"
+    echo -e "   ${E_WARN}  Не публикуйте ссылки на прокси!"
+    for i in $(seq 0 $((PROXY_COUNT - 1))); do
+        echo -e "   ${E_WARN}  ${PROXY_LABELS[$i]}: домен=${PROXY_DOMAINS[$i]}, порт=${PROXY_PORTS[$i]}"
+    done
     echo ""
 
     print_sep
