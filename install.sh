@@ -591,6 +591,10 @@ USERS_EOF
 
     log_ok "Файл пользователей создан"
 
+    # Генерация API токена
+    API_TOKEN=$(openssl rand -hex 32)
+    log_ok "API токен сгенерирован: ${E_KEY} $API_TOKEN"
+
     # Создание файла настроек
     cat > "$INSTALL_DIR/config/settings.json" << SET_EOF
 {
@@ -602,6 +606,7 @@ USERS_EOF
     "bot_enabled": ${BOT_ENABLED},
     "bot_token": "${BOT_TOKEN}",
     "admin_chat_id": "${ADMIN_CHAT_ID}",
+    "api_token": "${API_TOKEN}",
     "auto_heal": true,
     "auto_update": true,
     "backup_enabled": true,
@@ -831,6 +836,16 @@ step_summary() {
         echo -e "   Запустите бота в Telegram"
         echo ""
     fi
+
+    echo -e "${WHITE}${E_KEY}  API токен для авторизации:${NC}"
+    echo -e "${CYAN}   ${API_TOKEN}${NC}"
+    echo -e "   Сохраните этот токен! Он нужен для доступа к API и админ-панели."
+    echo ""
+    echo -e "${WHITE}${E_INFO}  Использование API-токена:${NC}"
+    echo -e "   ${E_ARROW} В админ-панели: введите токен на странице /login"
+    echo -e "   ${E_ARROW} В API запросах: добавьте заголовок Authorization: Bearer ${API_TOKEN}"
+    echo -e "     Пример: curl -H 'Authorization: Bearer ${API_TOKEN}' http://localhost:8080/api/status"
+    echo ""
 
     echo -e "${WHITE}${E_FILE}  Каталог установки:${NC}"
     echo -e "   $INSTALL_DIR"

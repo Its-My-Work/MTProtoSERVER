@@ -1,18 +1,53 @@
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import json
 import os
 import subprocess
 import secrets as sec
 import psutil
+import logging
 from datetime import datetime
 
 app = FastAPI(title="MTProtoSERVER Web UI")
 
+# Настройка логирования
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    # Логируем запрос
+    logging.info(f"Request: {request.method} {request.url.path} from {request.client.host}")
+
+    # Исключаем статические файлы, login и auth verify
+    if request.url.path.startswith("/static") or request.url.path == "/login" or request.url.path == "/api/auth/verify":
+        response = await call_next(request)
+        return response
+
+    # Проверяем токен в куки
+    token = request.cookies.get("api_token")
+    if not token:
+        logging.warning(f"Unauthorized access attempt to {request.url.path} from {request.client.host}")
+        if request.url.path.startswith("/api/"):
+            return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+        else:
+            return RedirectResponse(url="/login", status_code=302)
+
+    # Проверяем валидность токена
+    settings = get_settings()
+    if settings.get('api_token') != token:
+        logging.warning(f"Invalid token attempt to {request.url.path} from {request.client.host}")
+        if request.url.path.startswith("/api/"):
+            return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+        else:
+            return RedirectResponse(url="/login", status_code=302)
+
+    response = await call_next(request)
+    return response
 
 DATA_DIR = "/app/data"
 CONFIG_DIR = "/app/config"
@@ -165,6 +200,10 @@ async def diagnostics_page(request: Request):
         "proxy_status": proxy_status
     })
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
 @app.post("/api/users/add", dependencies=[Depends(verify_api_token)])
 async def add_user(request: Request):
     form = await request.form()
@@ -189,7 +228,7 @@ async def add_user(request: Request):
         try:
             # Handle datetime-local format YYYY-MM-DDTHH:MM
             if 'T' in expires_input:
-                expires = expires_input.replace('T', ' ')
+                expires = expires_input.replace('T', ' ') + ':00'
             elif len(expires_input) == 10:  # Только дата
                 expires = f"{expires_input} 23:59:59"
             else:
@@ -319,14 +358,18 @@ async def delete_proxy(proxy_id: int):
     save_proxies(proxies_data)
     return JSONResponse({'status': 'ok'})
 
-@app.post("/generate_api_token")
-async def generate_api_token_endpoint():
-    settings = get_settings()
-    settings['api_token'] = generate_api_token()
-    save_json(SETTINGS_FILE, settings)
-    return {"status": "success", "token": settings['api_token']}
 
-@app.get("/api/status")
+@app.post("/api/auth/verify")
+async def verify_token(request: Request):
+    form = await request.form()
+    token = form.get('token', '')
+    settings = get_settings()
+    if settings.get('api_token') == token:
+        return JSONResponse({'status': 'ok', 'message': 'Токен валиден'})
+    else:
+        return JSONResponse({'status': 'error', 'message': 'Неверный токен'}, status_code=401)
+
+@app.get("/api/status", dependencies=[Depends(verify_api_token)])
 async def api_status():
     settings = get_settings()
     system = get_system_info()
@@ -343,7 +386,7 @@ async def api_status():
         'system': system
     })
 
-@app.get("/api/metrics")
+@app.get("/api/metrics", dependencies=[Depends(verify_api_token)])
 async def api_metrics():
     users_data = get_users()
     proxies_data = get_proxies()

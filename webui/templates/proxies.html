@@ -86,6 +86,13 @@
 
 {% block scripts %}
 <script>
+function getToken() {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; api_token=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return null;
+}
+
 document.getElementById('add-proxy-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
@@ -95,7 +102,10 @@ document.getElementById('add-proxy-form').addEventListener('submit', async (e) =
     try {
         const response = await fetch('/api/proxies/add', {
             method: 'POST',
-            body: formData
+            body: formData,
+            headers: {
+                'Authorization': 'Bearer ' + getToken()
+            }
         });
         const data = await response.json();
         result.style.display = 'block';
@@ -120,13 +130,23 @@ function copyProxyLink(ip, port, secret) {
 }
 
 async function toggleProxy(id) {
-    await fetch(`/api/proxies/${id}/toggle`, { method: 'POST' });
+    await fetch(`/api/proxies/${id}/toggle`, {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + getToken()
+        }
+    });
     location.reload();
 }
 
 async function deleteProxy(id) {
     if (!confirm('Удалить этот прокси сервер?')) return;
-    await fetch(`/api/proxies/${id}/delete`, { method: 'POST' });
+    await fetch(`/api/proxies/${id}/delete`, {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + getToken()
+        }
+    });
     location.reload();
 }
 </script>

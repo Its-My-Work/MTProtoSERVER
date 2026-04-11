@@ -38,6 +38,10 @@
                 <span class="nav-icon">🔧</span>
                 <span>Диагностика</span>
             </a>
+            <a href="#" class="nav-link" onclick="logout()">
+                <span class="nav-icon">🚪</span>
+                <span>Выход</span>
+            </a>
         </nav>
     </div>
 
@@ -46,6 +50,12 @@
     </main>
 
     <script src="/static/js/app.js"></script>
+    <script>
+        function logout() {
+            document.cookie = 'api_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+            window.location.href = '/login';
+        }
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

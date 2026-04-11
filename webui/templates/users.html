@@ -78,6 +78,13 @@
 
 {% block scripts %}
 <script>
+function getToken() {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; api_token=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return null;
+}
+
 document.getElementById('add-user-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
@@ -87,7 +94,10 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
     try {
         const response = await fetch('/api/users/add', {
             method: 'POST',
-            body: formData
+            body: formData,
+            headers: {
+                'Authorization': 'Bearer ' + getToken()
+            }
         });
         const data = await response.json();
         result.style.display = 'block';
@@ -112,13 +122,23 @@ function copyUserLink(secret) {
 }
 
 async function toggleUser(id) {
-    await fetch(`/api/users/${id}/toggle`, { method: 'POST' });
+    await fetch(`/api/users/${id}/toggle`, {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + getToken()
+        }
+    });
     location.reload();
 }
 
 async function deleteUser(id) {
     if (!confirm('Удалить пользователя?')) return;
-    await fetch(`/api/users/${id}/delete`, { method: 'POST' });
+    await fetch(`/api/users/${id}/delete`, {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + getToken()
+        }
+    });
     location.reload();
 }
 </script>
