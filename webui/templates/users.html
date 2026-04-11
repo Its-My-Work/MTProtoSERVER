@@ -41,7 +41,31 @@
             </thead>
             <tbody>
                 {% for user in users %}
-                <tr>
+                <tr class="clickable-row" onclick="openUserModal(this)"
+                    data-id="{{ user.id }}"
+                    data-label="{{ user.label }}"
+                    data-proxy-id="{{ user.proxy_id }}"
+                    data-enabled="{{ user.enabled }}"
+                    data-created="{{ user.created_at | default('—') }}"
+                    data-expires="{{ user.expires | default('') }}"
+                    data-secret="{{ user.secret }}"
+                    data-traffic-in="{{ user.traffic_in | default(0) }}"
+                    data-traffic-out="{{ user.traffic_out | default(0) }}"
+                    {% set ns_p = namespace(port=0, secret='', label='N/A', domain='') %}
+                    {% for proxy in proxies %}
+                    {% if proxy.id == user.proxy_id %}
+                    {% set ns_p.port = proxy.port %}
+                    {% set ns_p.secret = proxy.secret %}
+                    {% set ns_p.label = proxy.label %}
+                    {% set ns_p.domain = proxy.domain %}
+                    {% endif %}
+                    {% endfor %}
+                    data-proxy-label="{{ ns_p.label }}"
+                    data-proxy-port="{{ ns_p.port }}"
+                    data-proxy-secret="{{ ns_p.secret }}"
+                    data-proxy-domain="{{ ns_p.domain }}"
+                    data-server-ip="{{ settings.proxy_ip | default('') }}"
+                >
                     <td>{{ user.id }}</td>
                     <td><strong>{{ user.label }}</strong></td>
                     <td>
@@ -91,6 +115,66 @@
         </table>
     </div>
 </div>
+
+<!-- Модальное окно карточки пользователя -->
+<div id="user-modal" class="modal-overlay" onclick="if(event.target===this)closeUserModal()">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="modal-title">👤 Пользователь</h3>
+            <button class="modal-close" onclick="closeUserModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-status-row">
+                <div class="modal-stat">
+                    <span class="modal-field-label">Статус</span>
+                    <span class="modal-field-value" id="modal-status"></span>
+                </div>
+                <div class="modal-stat">
+                    <span class="modal-field-label">Трафик IN</span>
+                    <span class="modal-field-value" id="modal-traffic-in"></span>
+                </div>
+                <div class="modal-stat">
+                    <span class="modal-field-label">Трафик OUT</span>
+                    <span class="modal-field-value" id="modal-traffic-out"></span>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px;"></div>
+
+            <div class="modal-field">
+                <span class="modal-field-label">Прокси</span>
+                <span class="modal-field-value" id="modal-proxy"></span>
+            </div>
+
+            <div class="modal-field">
+                <span class="modal-field-label">Создан</span>
+                <span class="modal-field-value" id="modal-created"></span>
+            </div>
+
+            <div class="modal-field">
+                <span class="modal-field-label">Срок действия</span>
+                <span class="modal-field-value" id="modal-expires"></span>
+            </div>
+
+            <div class="modal-field">
+                <span class="modal-field-label">Секрет пользователя</span>
+                <span class="modal-field-value"><code id="modal-secret"></code></span>
+            </div>
+
+            <div class="modal-field">
+                <span class="modal-field-label">🔗 Ссылка для подключения</span>
+                <div class="modal-link-box">
+                    <code id="modal-link"></code>
+                    <button class="btn btn-sm btn-primary" onclick="copyModalLink()">📋 Копировать</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-sm" id="modal-toggle-btn">⏸️ Вкл/Выкл</button>
+            <button class="btn btn-sm btn-danger" id="modal-delete-btn">🗑️ Удалить</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -128,6 +212,63 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
     }
 });
 
+let currentUserId = null;
+
+function openUserModal(row) {
+    // Не открывать модалку при клике на кнопки действий
+    if (event.target.closest('.actions-cell')) return;
+
+    const data = row.dataset;
+    currentUserId = data.id;
+
+    document.getElementById('modal-title').textContent = `👤 ${data.label}`;
+    
+    const statusEl = document.getElementById('modal-status');
+    if (data.enabled === 'True') {
+        statusEl.innerHTML = '<span class="badge badge-success">Активен</span>';
+    } else {
+        statusEl.innerHTML = '<span class="badge badge-danger">Отключён</span>';
+    }
+
+    document.getElementById('modal-traffic-in').textContent = data.trafficIn || '0';
+    document.getElementById('modal-traffic-out').textContent = data.trafficOut || '0';
+    document.getElementById('modal-proxy').textContent = `${data.proxyLabel} (порт ${data.proxyPort}, ${data.proxyDomain})`;
+    document.getElementById('modal-created').textContent = data.created;
+    document.getElementById('modal-expires').textContent = data.expires || 'Бессрочно';
+    document.getElementById('modal-secret').textContent = data.secret;
+
+    // Формируем полную ссылку
+    const ip = data.serverIp;
+    const port = data.proxyPort;
+    const secret = data.proxySecret;
+    if (ip && port && secret) {
+        document.getElementById('modal-link').textContent = `tg://proxy?server=${ip}&port=${port}&secret=${secret}`;
+    } else {
+        document.getElementById('modal-link').textContent = 'Не удалось сформировать ссылку. Проверьте настройки.';
+    }
+
+    // Кнопки действий
+    document.getElementById('modal-toggle-btn').onclick = () => toggleUser(data.id);
+    document.getElementById('modal-delete-btn').onclick = () => deleteUser(data.id);
+
+    document.getElementById('user-modal').classList.add('active');
+}
+
+function closeUserModal() {
+    document.getElementById('user-modal').classList.remove('active');
+    currentUserId = null;
+}
+
+function copyModalLink() {
+    const link = document.getElementById('modal-link').textContent;
+    if (link.startsWith('tg://')) {
+        navigator.clipboard.writeText(link);
+        showToast('Ссылка скопирована!');
+    } else {
+        showToast('Ссылка недоступна', 'error');
+    }
+}
+
 function copyUserLink(ip, port, secret) {
     if (!ip || !port || !secret) {
         showToast('Ошибка: не удалось сформировать ссылку. Проверьте настройки прокси.', 'error');
@@ -148,5 +289,10 @@ async function deleteUser(id) {
     await fetch(`/api/users/${id}/delete`, { method: 'POST' });
     location.reload();
 }
+
+// Закрытие модалки по Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeUserModal();
+});
 </script>
 {% endblock %}
