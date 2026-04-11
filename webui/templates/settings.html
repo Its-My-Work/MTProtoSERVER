@@ -65,6 +65,19 @@
 </div>
 
 <div class="section">
+    <h3>🔑 API токен</h3>
+    <div class="settings-grid">
+        <div class="setting-item">
+            <label>Текущий токен</label>
+            <input type="text" id="api-token" value="{{ settings.api_token or 'Не сгенерирован' }}" class="input" readonly>
+        </div>
+        <div class="setting-item">
+            <button id="generate-token-btn" class="btn btn-primary">Сгенерировать токен</button>
+        </div>
+    </div>
+</div>
+
+<div class="section">
     <h3>📁 Файлы конфигурации</h3>
     <div class="file-list">
         <div class="file-item">

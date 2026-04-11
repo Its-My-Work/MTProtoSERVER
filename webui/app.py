@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException, Depends, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -32,7 +32,21 @@ def save_json(filepath, data):
         json.dump(data, f, indent=4)
 
 def get_settings():
-    return load_json(SETTINGS_FILE)
+    settings = load_json(SETTINGS_FILE)
+    settings.setdefault('api_token', None)
+    return settings
+
+def generate_api_token():
+    return sec.token_hex(32)
+
+def verify_api_token(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith('Bearer '):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    token = authorization[7:]
+    settings = get_settings()
+    if settings.get('api_token') != token:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return True
 
 def get_users():
     return load_json(USERS_FILE)
@@ -151,7 +165,7 @@ async def diagnostics_page(request: Request):
         "proxy_status": proxy_status
     })
 
-@app.post("/api/users/add")
+@app.post("/api/users/add", dependencies=[Depends(verify_api_token)])
 async def add_user(request: Request):
     form = await request.form()
     label = form.get('label', 'user')
@@ -219,7 +233,7 @@ async def add_user(request: Request):
     )
     return JSONResponse({'status': 'ok', 'secret': new_secret, 'link': link})
 
-@app.post("/api/users/{user_id}/toggle")
+@app.post("/api/users/{user_id}/toggle", dependencies=[Depends(verify_api_token)])
 async def toggle_user(user_id: int):
     users_data = get_users()
     users = users_data.get('users', [])
@@ -230,7 +244,7 @@ async def toggle_user(user_id: int):
     save_users(users_data)
     return JSONResponse({'status': 'ok'})
 
-@app.post("/api/users/{user_id}/delete")
+@app.post("/api/users/{user_id}/delete", dependencies=[Depends(verify_api_token)])
 async def delete_user(user_id: int):
     users_data = get_users()
     users = users_data.get('users', [])
@@ -239,7 +253,7 @@ async def delete_user(user_id: int):
     save_users(users_data)
     return JSONResponse({'status': 'ok'})
 
-@app.post("/api/proxies/add")
+@app.post("/api/proxies/add", dependencies=[Depends(verify_api_token)])
 async def add_proxy(request: Request):
     form = await request.form()
     label = form.get('label', 'proxy')
@@ -280,7 +294,7 @@ async def add_proxy(request: Request):
     link = get_proxy_link(settings.get('proxy_ip', '0.0.0.0'), port, secret)
     return JSONResponse({'status': 'ok', 'secret': secret, 'link': link})
 
-@app.post("/api/proxies/{proxy_id}/toggle")
+@app.post("/api/proxies/{proxy_id}/toggle", dependencies=[Depends(verify_api_token)])
 async def toggle_proxy(proxy_id: int):
     proxies_data = get_proxies()
     proxies = proxies_data.get('proxies', [])
@@ -291,7 +305,7 @@ async def toggle_proxy(proxy_id: int):
     save_proxies(proxies_data)
     return JSONResponse({'status': 'ok'})
 
-@app.post("/api/proxies/{proxy_id}/delete")
+@app.post("/api/proxies/{proxy_id}/delete", dependencies=[Depends(verify_api_token)])
 async def delete_proxy(proxy_id: int):
     proxies_data = get_proxies()
     proxies = proxies_data.get('proxies', [])
@@ -304,6 +318,13 @@ async def delete_proxy(proxy_id: int):
 
     save_proxies(proxies_data)
     return JSONResponse({'status': 'ok'})
+
+@app.post("/generate_api_token")
+async def generate_api_token_endpoint():
+    settings = get_settings()
+    settings['api_token'] = generate_api_token()
+    save_json(SETTINGS_FILE, settings)
+    return {"status": "success", "token": settings['api_token']}
 
 @app.get("/api/status")
 async def api_status():

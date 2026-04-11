@@ -106,7 +106,7 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
 });
 
 function copyUserLink(secret) {
-    const link = `{{ settings.proxy_ip ? 'tg://proxy?server=' + settings.proxy_ip + '&port=' + settings.proxy_port + '&secret=' : '' }}${secret}`;
+    const link = `{% if settings.proxy_ip %}tg://proxy?server={{ settings.proxy_ip }}&port={{ settings.proxy_port }}&secret={% else %}{% endif %}${secret}`;
     navigator.clipboard.writeText(link);
     showToast('Ссылка скопирована!');
 }

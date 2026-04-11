@@ -40,4 +40,21 @@ function toggleTheme() {
 document.addEventListener('DOMContentLoaded', () => {
     const saved = localStorage.getItem('theme');
     if (saved) document.documentElement.setAttribute('data-theme', saved);
+
+    const generateBtn = document.getElementById('generate-token-btn');
+    if (generateBtn) {
+        generateBtn.addEventListener('click', async () => {
+            try {
+                const result = await apiRequest('/generate_api_token', 'POST');
+                if (result.status === 'success') {
+                    document.getElementById('api-token').value = result.token;
+                    showToast('Токен сгенерирован!');
+                } else {
+                    showToast('Ошибка генерации токена');
+                }
+            } catch (e) {
+                showToast('Ошибка: ' + e.message);
+            }
+        });
+    }
 });
