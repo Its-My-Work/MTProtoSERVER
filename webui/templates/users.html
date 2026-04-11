@@ -15,7 +15,7 @@
             <option value="{{ proxy.id }}">{{ proxy.label }} (порт {{ proxy.port }}, {{ proxy.domain }})</option>
             {% endfor %}
         </select>
-        <input type="datetime-local" name="expires" placeholder="Срок действия (необязательно)" class="input">
+        <input type="datetime-local" name="expires" placeholder="Срок действия (необязательно)" class="input" step="60">
         <button type="submit" class="btn btn-primary">Добавить</button>
     </form>
     <div id="add-result" class="result-box" style="display:none;"></div>
@@ -72,7 +72,14 @@
                     <td>{{ user.traffic_in | default(0) }}</td>
                     <td>{{ user.traffic_out | default(0) }}</td>
                     <td class="actions-cell">
-                        <button class="btn btn-sm" onclick="copyUserLink('{{ user.secret }}')">📋 Ссылка</button>
+                        {% set ns_proxy = namespace(port=0, secret='') %}
+                        {% for proxy in proxies %}
+                        {% if proxy.id == user.proxy_id %}
+                        {% set ns_proxy.port = proxy.port %}
+                        {% set ns_proxy.secret = proxy.secret %}
+                        {% endif %}
+                        {% endfor %}
+                        <button class="btn btn-sm" onclick="copyUserLink('{{ settings.proxy_ip | default('') }}', {{ ns_proxy.port }}, '{{ ns_proxy.secret }}')">📋 Ссылка</button>
                         <button class="btn btn-sm" onclick="toggleUser({{ user.id }})">
                             {% if user.enabled %}⏸️{% else %}▶️{% endif %}
                         </button>
@@ -121,8 +128,12 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
     }
 });
 
-function copyUserLink(secret) {
-    const link = `{% if settings.proxy_ip %}tg://proxy?server={{ settings.proxy_ip }}&port={{ settings.proxy_port }}&secret={% else %}{% endif %}${secret}`;
+function copyUserLink(ip, port, secret) {
+    if (!ip || !port || !secret) {
+        showToast('Ошибка: не удалось сформировать ссылку. Проверьте настройки прокси.', 'error');
+        return;
+    }
+    const link = `tg://proxy?server=${ip}&port=${port}&secret=${secret}`;
     navigator.clipboard.writeText(link);
     showToast('Ссылка скопирована!');
 }
