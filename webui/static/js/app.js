@@ -1,6 +1,6 @@
-function showToast(message) {
+function showToast(message, type = 'info') {
     const toast = document.createElement('div');
-    toast.className = 'toast';
+    toast.className = `toast toast-${type}`;
     toast.textContent = message;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
@@ -9,7 +9,7 @@ function showToast(message) {
 function copyLink() {
     const link = document.getElementById('proxy-link').textContent;
     navigator.clipboard.writeText(link);
-    showToast('Ссылка скопирована!');
+    showToast('Ссылка скопирована!', 'success');
 }
 
 async function apiRequest(url, method = 'GET', body = null) {
@@ -19,6 +19,10 @@ async function apiRequest(url, method = 'GET', body = null) {
         options.body = JSON.stringify(body);
     }
     const response = await fetch(url, options);
+    if (response.status === 401) {
+        window.location.href = '/login';
+        throw new Error('Unauthorized');
+    }
     return response.json();
 }
 
@@ -37,24 +41,45 @@ function toggleTheme() {
     localStorage.setItem('theme', next);
 }
 
+async function logout() {
+    try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (e) {
+        // Игнорируем ошибки
+    }
+    window.location.href = '/login';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const saved = localStorage.getItem('theme');
     if (saved) document.documentElement.setAttribute('data-theme', saved);
 
+    // Генерация нового API токена
     const generateBtn = document.getElementById('generate-token-btn');
     if (generateBtn) {
         generateBtn.addEventListener('click', async () => {
+            if (!confirm('Сгенерировать новый токен? Текущий станет недействительным.')) return;
             try {
                 const result = await apiRequest('/generate_api_token', 'POST');
                 if (result.status === 'success') {
-                    document.getElementById('api-token').value = result.token;
-                    showToast('Токен сгенерирован!');
+                    const tokenField = document.getElementById('api-token');
+                    if (tokenField) tokenField.value = result.token_preview || '(обновлён)';
+                    showToast('Токен сгенерирован! Cookie обновлён.', 'success');
                 } else {
-                    showToast('Ошибка генерации токена');
+                    showToast('Ошибка генерации токена', 'error');
                 }
             } catch (e) {
-                showToast('Ошибка: ' + e.message);
+                showToast('Ошибка: ' + e.message, 'error');
             }
+        });
+    }
+
+    // Кнопка выхода
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            logout();
         });
     }
 });

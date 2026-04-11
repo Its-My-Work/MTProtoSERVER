@@ -9,8 +9,8 @@
 <div class="section">
     <h3>➕ Добавить новый прокси</h3>
     <form id="add-proxy-form" class="form-inline">
-        <input type="text" name="label" placeholder="Метка (напр: backup)" required class="input">
-        <input type="number" name="port" placeholder="Порт (напр: 444)" required class="input" style="width:120px;">
+        <input type="text" name="label" placeholder="Метка (напр: backup)" required class="input" minlength="1" maxlength="64">
+        <input type="number" name="port" placeholder="Порт (напр: 444)" required class="input" style="width:120px;" min="1" max="65535">
         <input type="text" name="domain" placeholder="Домен (напр: yandex.ru)" required class="input">
         <button type="submit" class="btn btn-primary">Создать</button>
     </form>
@@ -28,6 +28,7 @@
                     <th>Порт</th>
                     <th>Домен</th>
                     <th>Статус</th>
+                    <th>Создан</th>
                     <th>Секрет</th>
                     <th>Действия</th>
                 </tr>
@@ -46,6 +47,7 @@
                         <span class="badge badge-danger">Отключён</span>
                         {% endif %}
                     </td>
+                    <td>{{ proxy.created_at | default('—') }}</td>
                     <td><code class="secret-code">{{ proxy.secret[:16] }}...</code></td>
                     <td class="actions-cell">
                         <button class="btn btn-sm" onclick="copyProxyLink('{{ settings.proxy_ip }}', {{ proxy.port }}, '{{ proxy.secret }}')">📋 Ссылка</button>
@@ -86,13 +88,6 @@
 
 {% block scripts %}
 <script>
-function getToken() {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; api_token=`);
-    if (parts.length === 2) return parts.pop().split(';').shift();
-    return null;
-}
-
 document.getElementById('add-proxy-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
@@ -102,24 +97,27 @@ document.getElementById('add-proxy-form').addEventListener('submit', async (e) =
     try {
         const response = await fetch('/api/proxies/add', {
             method: 'POST',
-            body: formData,
-            headers: {
-                'Authorization': 'Bearer ' + getToken()
-            }
+            body: formData
         });
         const data = await response.json();
-        result.style.display = 'block';
-        result.className = 'result-box success';
-        result.innerHTML = `
-            <p>✅ Прокси добавлен!</p>
-            <p>Ссылка: <code>${data.link}</code></p>
-            <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${data.link}')">📋 Копировать</button>
-        `;
-        setTimeout(() => location.reload(), 2000);
+        if (data.status === 'ok') {
+            result.style.display = 'block';
+            result.className = 'result-box success';
+            result.innerHTML = `
+                <p>✅ Прокси добавлен!</p>
+                <p>Ссылка: <code>${data.link}</code></p>
+                <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${data.link}')">📋 Копировать</button>
+            `;
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            result.style.display = 'block';
+            result.className = 'result-box error';
+            result.textContent = '❌ ' + (data.message || 'Ошибка');
+        }
     } catch (err) {
         result.style.display = 'block';
         result.className = 'result-box error';
-        result.textContent = '❌ Ошибка: ' + err.message;
+        result.textContent = '❌ Ошибка сети: ' + err.message;
     }
 });
 
@@ -130,23 +128,13 @@ function copyProxyLink(ip, port, secret) {
 }
 
 async function toggleProxy(id) {
-    await fetch(`/api/proxies/${id}/toggle`, {
-        method: 'POST',
-        headers: {
-            'Authorization': 'Bearer ' + getToken()
-        }
-    });
+    await fetch(`/api/proxies/${id}/toggle`, { method: 'POST' });
     location.reload();
 }
 
 async function deleteProxy(id) {
     if (!confirm('Удалить этот прокси сервер?')) return;
-    await fetch(`/api/proxies/${id}/delete`, {
-        method: 'POST',
-        headers: {
-            'Authorization': 'Bearer ' + getToken()
-        }
-    });
+    await fetch(`/api/proxies/${id}/delete`, { method: 'POST' });
     location.reload();
 }
 </script>

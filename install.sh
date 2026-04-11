@@ -596,6 +596,11 @@ USERS_EOF
     log_ok "API токен сгенерирован: ${E_KEY} $API_TOKEN"
 
     # Создание файла настроек
+    if [ "$BOT_ENABLED" = "yes" ]; then
+        BOT_ENABLED_JSON=true
+    else
+        BOT_ENABLED_JSON=false
+    fi
     cat > "$INSTALL_DIR/config/settings.json" << SET_EOF
 {
     "proxy_ip": "${SERVER_IP}",
@@ -603,7 +608,7 @@ USERS_EOF
     "fake_domain": "${FAKE_DOMAIN}",
     "webui_port": ${WEBUI_PORT},
     "proxy_count": ${PROXY_COUNT},
-    "bot_enabled": ${BOT_ENABLED},
+    "bot_enabled": ${BOT_ENABLED_JSON},
     "bot_token": "${BOT_TOKEN}",
     "admin_chat_id": "${ADMIN_CHAT_ID}",
     "api_token": "${API_TOKEN}",
