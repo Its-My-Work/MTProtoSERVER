@@ -49,8 +49,9 @@ async def auth_middleware(request: Request, call_next):
     response = await call_next(request)
     return response
 
-DATA_DIR = "/app/data"
-CONFIG_DIR = "/app/config"
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
 PROXIES_FILE = os.path.join(DATA_DIR, "proxies.json")
