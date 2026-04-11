@@ -788,9 +788,10 @@ step_start() {
 
     cd "$INSTALL_DIR"
 
-    log_info "Запуск контейнеров..."
-    docker compose pull
-    docker compose up -d
+    log_info "Сборка и запуск контейнеров..."
+    docker compose pull --ignore-buildable 2>/dev/null || true
+    docker compose build --no-cache
+    docker compose up -d --force-recreate
 
     sleep 3
 

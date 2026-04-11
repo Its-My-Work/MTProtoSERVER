@@ -41,42 +41,19 @@
             </thead>
             <tbody>
                 {% for user in users %}
-                <tr class="clickable-row" onclick="openUserModal(this)"
-                    data-id="{{ user.id }}"
-                    data-label="{{ user.label }}"
-                    data-proxy-id="{{ user.proxy_id }}"
-                    data-enabled="{{ user.enabled }}"
-                    data-created="{{ user.created_at | default('—') }}"
-                    data-expires="{{ user.expires | default('') }}"
-                    data-secret="{{ user.secret }}"
-                    data-traffic-in="{{ user.traffic_in | default(0) }}"
-                    data-traffic-out="{{ user.traffic_out | default(0) }}"
-                    {% set ns_p = namespace(port=0, secret='', label='N/A', domain='') %}
-                    {% for proxy in proxies %}
-                    {% if proxy.id == user.proxy_id %}
-                    {% set ns_p.port = proxy.port %}
-                    {% set ns_p.secret = proxy.secret %}
-                    {% set ns_p.label = proxy.label %}
-                    {% set ns_p.domain = proxy.domain %}
-                    {% endif %}
-                    {% endfor %}
-                    data-proxy-label="{{ ns_p.label }}"
-                    data-proxy-port="{{ ns_p.port }}"
-                    data-proxy-secret="{{ ns_p.secret }}"
-                    data-proxy-domain="{{ ns_p.domain }}"
-                    data-server-ip="{{ settings.proxy_ip | default('') }}"
-                >
+                {% set ns = namespace(proxy_label="N/A", proxy_port=0, proxy_secret='', proxy_domain='') %}
+                {% for proxy in proxies %}
+                {% if proxy.id == user.proxy_id %}
+                {% set ns.proxy_label = proxy.label %}
+                {% set ns.proxy_port = proxy.port %}
+                {% set ns.proxy_secret = proxy.secret %}
+                {% set ns.proxy_domain = proxy.domain %}
+                {% endif %}
+                {% endfor %}
+                <tr class="clickable-row" data-user-index="{{ loop.index0 }}">
                     <td>{{ user.id }}</td>
                     <td><strong>{{ user.label }}</strong></td>
-                    <td>
-                        {% set ns = namespace(proxy_label="N/A") %}
-                        {% for proxy in proxies %}
-                        {% if proxy.id == user.proxy_id %}
-                        {% set ns.proxy_label = proxy.label %}
-                        {% endif %}
-                        {% endfor %}
-                        {{ ns.proxy_label }}
-                    </td>
+                    <td>{{ ns.proxy_label }}</td>
                     <td>
                         {% if user.enabled %}
                         <span class="badge badge-success">Активен</span>
@@ -96,18 +73,11 @@
                     <td>{{ user.traffic_in | default(0) }}</td>
                     <td>{{ user.traffic_out | default(0) }}</td>
                     <td class="actions-cell">
-                        {% set ns_proxy = namespace(port=0, secret='') %}
-                        {% for proxy in proxies %}
-                        {% if proxy.id == user.proxy_id %}
-                        {% set ns_proxy.port = proxy.port %}
-                        {% set ns_proxy.secret = proxy.secret %}
-                        {% endif %}
-                        {% endfor %}
-                        <button class="btn btn-sm" onclick="copyUserLink('{{ settings.proxy_ip | default('') }}', {{ ns_proxy.port }}, '{{ ns_proxy.secret }}')">📋 Ссылка</button>
-                        <button class="btn btn-sm" onclick="toggleUser({{ user.id }})">
+                        <button class="btn btn-sm" onclick="event.stopPropagation(); copyUserLink('{{ settings.proxy_ip | default('') }}', {{ ns.proxy_port }}, '{{ ns.proxy_secret }}')">📋 Ссылка</button>
+                        <button class="btn btn-sm" onclick="event.stopPropagation(); toggleUser({{ user.id }})">
                             {% if user.enabled %}⏸️{% else %}▶️{% endif %}
                         </button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteUser({{ user.id }})">🗑️</button>
+                        <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteUser({{ user.id }})">🗑️</button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -117,7 +87,7 @@
 </div>
 
 <!-- Модальное окно карточки пользователя -->
-<div id="user-modal" class="modal-overlay" onclick="if(event.target===this)closeUserModal()">
+<div id="user-modal" class="modal-overlay">
     <div class="modal">
         <div class="modal-header">
             <h3 id="modal-title">👤 Пользователь</h3>
@@ -179,27 +149,55 @@
 
 {% block scripts %}
 <script>
-document.getElementById('add-user-form').addEventListener('submit', async (e) => {
+// Данные пользователей для модального окна
+var usersData = [
+    {% for user in users %}
+    {% set ns = namespace(proxy_label="N/A", proxy_port=0, proxy_secret='', proxy_domain='') %}
+    {% for proxy in proxies %}
+    {% if proxy.id == user.proxy_id %}
+    {% set ns.proxy_label = proxy.label %}
+    {% set ns.proxy_port = proxy.port %}
+    {% set ns.proxy_secret = proxy.secret %}
+    {% set ns.proxy_domain = proxy.domain %}
+    {% endif %}
+    {% endfor %}
+    {
+        id: {{ user.id }},
+        label: "{{ user.label | e }}",
+        enabled: {{ 'true' if user.enabled else 'false' }},
+        created: "{{ user.created_at | default('—') | e }}",
+        expires: "{{ user.expires | default('') | e }}",
+        secret: "{{ user.secret | e }}",
+        trafficIn: {{ user.traffic_in | default(0) }},
+        trafficOut: {{ user.traffic_out | default(0) }},
+        proxyLabel: "{{ ns.proxy_label | e }}",
+        proxyPort: {{ ns.proxy_port }},
+        proxySecret: "{{ ns.proxy_secret | e }}",
+        proxyDomain: "{{ ns.proxy_domain | e }}",
+        serverIp: "{{ settings.proxy_ip | default('') | e }}"
+    }{{ "," if not loop.last }}
+    {% endfor %}
+];
+
+document.getElementById('add-user-form').addEventListener('submit', async function(e) {
     e.preventDefault();
-    const form = e.target;
-    const formData = new FormData(form);
-    const result = document.getElementById('add-result');
+    var form = e.target;
+    var formData = new FormData(form);
+    var result = document.getElementById('add-result');
 
     try {
-        const response = await fetch('/api/users/add', {
+        var response = await fetch('/api/users/add', {
             method: 'POST',
             body: formData
         });
-        const data = await response.json();
+        var data = await response.json();
         if (data.status === 'ok') {
             result.style.display = 'block';
             result.className = 'result-box success';
-            result.innerHTML = `
-                <p>✅ Пользователь добавлен!</p>
-                <p>Ссылка: <code>${data.link}</code></p>
-                <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${data.link}')">📋 Копировать</button>
-            `;
-            setTimeout(() => location.reload(), 2000);
+            result.innerHTML = '<p>✅ Пользователь добавлен!</p>' +
+                '<p>Ссылка: <code>' + data.link + '</code></p>' +
+                '<button class="btn btn-sm" onclick="navigator.clipboard.writeText(\'' + data.link + '\')">📋 Копировать</button>';
+            setTimeout(function() { location.reload(); }, 2000);
         } else {
             result.style.display = 'block';
             result.className = 'result-box error';
@@ -212,44 +210,53 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
     }
 });
 
-let currentUserId = null;
+// Клик по строке таблицы
+document.querySelectorAll('.clickable-row').forEach(function(row) {
+    row.addEventListener('click', function(e) {
+        // Не открывать модалку при клике на кнопки действий
+        if (e.target.closest('.actions-cell')) return;
+        var index = parseInt(row.getAttribute('data-user-index'));
+        openUserModal(index);
+    });
+});
 
-function openUserModal(row) {
-    // Не открывать модалку при клике на кнопки действий
-    if (event.target.closest('.actions-cell')) return;
+var currentUserId = null;
 
-    const data = row.dataset;
-    currentUserId = data.id;
+function openUserModal(index) {
+    var user = usersData[index];
+    if (!user) return;
 
-    document.getElementById('modal-title').textContent = `👤 ${data.label}`;
-    
-    const statusEl = document.getElementById('modal-status');
-    if (data.enabled === 'True') {
+    currentUserId = user.id;
+
+    document.getElementById('modal-title').textContent = '👤 ' + user.label;
+
+    var statusEl = document.getElementById('modal-status');
+    if (user.enabled) {
         statusEl.innerHTML = '<span class="badge badge-success">Активен</span>';
     } else {
         statusEl.innerHTML = '<span class="badge badge-danger">Отключён</span>';
     }
 
-    document.getElementById('modal-traffic-in').textContent = data.trafficIn || '0';
-    document.getElementById('modal-traffic-out').textContent = data.trafficOut || '0';
-    document.getElementById('modal-proxy').textContent = `${data.proxyLabel} (порт ${data.proxyPort}, ${data.proxyDomain})`;
-    document.getElementById('modal-created').textContent = data.created;
-    document.getElementById('modal-expires').textContent = data.expires || 'Бессрочно';
-    document.getElementById('modal-secret').textContent = data.secret;
+    document.getElementById('modal-traffic-in').textContent = user.trafficIn;
+    document.getElementById('modal-traffic-out').textContent = user.trafficOut;
+    document.getElementById('modal-proxy').textContent = user.proxyLabel + ' (порт ' + user.proxyPort + ', ' + user.proxyDomain + ')';
+    document.getElementById('modal-created').textContent = user.created;
+    document.getElementById('modal-expires').textContent = user.expires || 'Бессрочно';
+    document.getElementById('modal-secret').textContent = user.secret;
 
     // Формируем полную ссылку
-    const ip = data.serverIp;
-    const port = data.proxyPort;
-    const secret = data.proxySecret;
+    var ip = user.serverIp;
+    var port = user.proxyPort;
+    var secret = user.proxySecret;
     if (ip && port && secret) {
-        document.getElementById('modal-link').textContent = `tg://proxy?server=${ip}&port=${port}&secret=${secret}`;
+        document.getElementById('modal-link').textContent = 'tg://proxy?server=' + ip + '&port=' + port + '&secret=' + secret;
     } else {
         document.getElementById('modal-link').textContent = 'Не удалось сформировать ссылку. Проверьте настройки.';
     }
 
     // Кнопки действий
-    document.getElementById('modal-toggle-btn').onclick = () => toggleUser(data.id);
-    document.getElementById('modal-delete-btn').onclick = () => deleteUser(data.id);
+    document.getElementById('modal-toggle-btn').onclick = function() { toggleUser(user.id); };
+    document.getElementById('modal-delete-btn').onclick = function() { deleteUser(user.id); };
 
     document.getElementById('user-modal').classList.add('active');
 }
@@ -260,8 +267,8 @@ function closeUserModal() {
 }
 
 function copyModalLink() {
-    const link = document.getElementById('modal-link').textContent;
-    if (link.startsWith('tg://')) {
+    var link = document.getElementById('modal-link').textContent;
+    if (link.indexOf('tg://') === 0) {
         navigator.clipboard.writeText(link);
         showToast('Ссылка скопирована!');
     } else {
@@ -274,24 +281,29 @@ function copyUserLink(ip, port, secret) {
         showToast('Ошибка: не удалось сформировать ссылку. Проверьте настройки прокси.', 'error');
         return;
     }
-    const link = `tg://proxy?server=${ip}&port=${port}&secret=${secret}`;
+    var link = 'tg://proxy?server=' + ip + '&port=' + port + '&secret=' + secret;
     navigator.clipboard.writeText(link);
     showToast('Ссылка скопирована!');
 }
 
 async function toggleUser(id) {
-    await fetch(`/api/users/${id}/toggle`, { method: 'POST' });
+    await fetch('/api/users/' + id + '/toggle', { method: 'POST' });
     location.reload();
 }
 
 async function deleteUser(id) {
     if (!confirm('Удалить пользователя?')) return;
-    await fetch(`/api/users/${id}/delete`, { method: 'POST' });
+    await fetch('/api/users/' + id + '/delete', { method: 'POST' });
     location.reload();
 }
 
+// Закрытие модалки по клику на оверлей
+document.getElementById('user-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeUserModal();
+});
+
 // Закрытие модалки по Escape
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeUserModal();
 });
 </script>
