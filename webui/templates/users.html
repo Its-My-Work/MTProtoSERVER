@@ -15,6 +15,7 @@
             <option value="{{ proxy.id }}">{{ proxy.label }} (порт {{ proxy.port }}, {{ proxy.domain }})</option>
             {% endfor %}
         </select>
+        <input type="datetime-local" name="expires" placeholder="Срок действия (необязательно)" class="input">
         <button type="submit" class="btn btn-primary">Добавить</button>
     </form>
     <div id="add-result" class="result-box" style="display:none;"></div>

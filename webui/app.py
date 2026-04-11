@@ -7,6 +7,7 @@ import os
 import subprocess
 import secrets as sec
 import psutil
+from datetime import datetime
 
 app = FastAPI(title="MTProtoSERVER Web UI")
 
@@ -155,6 +156,7 @@ async def add_user(request: Request):
     form = await request.form()
     label = form.get('label', 'user')
     proxy_id = int(form.get('proxy_id', 1))
+    expires_input = form.get('expires', '').strip()
     proxies_data = get_proxies()
     proxies = proxies_data.get('proxies', [])
 
@@ -166,6 +168,22 @@ async def add_user(request: Request):
 
     if not target_proxy:
         return JSONResponse({'status': 'error', 'message': 'Прокси не найден'}, status_code=400)
+
+    # Обработка expires
+    expires = ''
+    if expires_input:
+        try:
+            # Handle datetime-local format YYYY-MM-DDTHH:MM
+            if 'T' in expires_input:
+                expires = expires_input.replace('T', ' ')
+            elif len(expires_input) == 10:  # Только дата
+                expires = f"{expires_input} 23:59:59"
+            else:
+                return JSONResponse({'status': 'error', 'message': 'Неверный формат даты. Используйте YYYY-MM-DDTHH:MM или YYYY-MM-DD'}, status_code=400)
+            # Валидация даты
+            datetime.strptime(expires, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            return JSONResponse({'status': 'error', 'message': 'Неверная дата'}, status_code=400)
 
     users_data = get_users()
     users = users_data.get('users', [])
@@ -183,7 +201,7 @@ async def add_user(request: Request):
         'max_connections': 0,
         'max_ips': 0,
         'data_quota': '0',
-        'expires': '',
+        'expires': expires,
         'traffic_in': 0,
         'traffic_out': 0,
         'connections': 0
@@ -321,3 +339,37 @@ async def api_metrics():
         metrics += f"# TYPE mtproto_user_traffic_in counter\n"
         metrics += f'mtproto_user_traffic_in{{user="{u["label"]}"}} {u.get("traffic_in", 0)}\n'
     return HTMLResponse(content=metrics)
+
+def check_expired_users():
+    users_data = get_users()
+    users = users_data.get('users', [])
+    settings = get_settings()
+    bot_token = settings.get('bot_token', '')
+    admin_chat_id = settings.get('admin_chat_id', '')
+    expired_users = []
+
+    for u in users:
+        expires = u.get('expires', '')
+        if expires and u.get('enabled', True):
+            try:
+                expire_time = datetime.strptime(expires, '%Y-%m-%d %H:%M:%S')
+                if datetime.now() > expire_time:
+                    u['enabled'] = False
+                    expired_users.append(u['label'])
+            except ValueError:
+                pass  # Игнорируем неверный формат
+
+    if expired_users:
+        save_users(users_data)
+        # Уведомление через бота
+        if bot_token and admin_chat_id:
+            def escape_markdown(text):
+                return text.replace('*', '\\*').replace('_', '\\_').replace('`', '\\`').replace('[', '\\[').replace(']', '\\]')
+            
+            message = f"⏰ *Истек срок действия пользователей:*\\n\\n" + "\\n".join(f"• {escape_markdown(user)}" for user in expired_users)
+            subprocess.run([
+                'curl', '-s', '-X', 'POST', f'https://api.telegram.org/bot{bot_token}/sendMessage',
+                '-d', f'chat_id={admin_chat_id}',
+                '-d', f'text={message}',
+                '-d', 'parse_mode=Markdown'
+            ], capture_output=True)
