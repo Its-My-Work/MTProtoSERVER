@@ -307,6 +307,9 @@ bash /opt/mtprotoserver/scripts/rotate-domain.sh
 
 # Мониторинг
 bash /opt/mtprotoserver/scripts/monitor.sh
+
+# Проверка и отключение истекших пользователей
+bash /opt/mtprotoserver/scripts/expire_check.sh
 ```
 
 ---
@@ -493,7 +496,8 @@ MTProtoSERVER/
 │   ├── monitor.sh                # Мониторинг
 │   ├── rotate-domain.sh          # Ротация домена
 │   ├── health-check.sh           # Диагностика
-│   └── speedtest.sh              # Speedtest
+│   ├── speedtest.sh              # Speedtest
+│   └── expire_check.sh           # Проверка истекших пользователей
 │
 └── config/
     ├── domains.txt               # Список доменов FakeTLS
