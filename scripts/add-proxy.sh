@@ -165,8 +165,8 @@ cat >> "$COMPOSE_FILE" << COMPOSE_ADD_EOF
       - "${port}:${port}"
     command: >
       simple-run
-      -a ${secret}
       --prefer-ip=prefer-ipv4
+      ${secret}
       0.0.0.0:${port}
     volumes:
       - ./data/mtproxy-${label}:/data

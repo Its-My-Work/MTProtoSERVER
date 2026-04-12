@@ -406,8 +406,8 @@ COMPOSE_HEADER_EOF
       - "${p_port}:${p_port}"
     command: >
       simple-run
-      -a ${p_secret}
       --prefer-ip=prefer-ipv4
+      ${p_secret}
       0.0.0.0:${p_port}
     volumes:
       - ./data/mtproxy-${p_label}:/data
