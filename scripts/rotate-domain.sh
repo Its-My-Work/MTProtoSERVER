@@ -59,7 +59,7 @@ fi
 cd "$INSTALL_DIR"
 
 # Обновляем секрет в docker-compose.yml
-# Формат в command: simple-run --prefer-ip=prefer-ipv4 <secret> 0.0.0.0:<port>
+# Формат в command: simple-run --prefer-ip=prefer-ipv4 0.0.0.0:<port> <secret>
 # Заменяем старый секрет на новый (base64 формат)
 sed -i -E "s|^([[:space:]]+)(ee[a-f0-9]+\|[A-Za-z0-9+/=]+)$|\1${NEW_SECRET}|" "$INSTALL_DIR/docker-compose.yml"
 
