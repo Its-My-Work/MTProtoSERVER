@@ -46,7 +46,7 @@
                 {% if proxy.id == user.proxy_id %}
                 {% set ns.proxy_label = proxy.label %}
                 {% set ns.proxy_port = proxy.port %}
-                {% set ns.proxy_secret = proxy.secret %}
+                {% set ns.proxy_secret = proxy.secret_hex | default(proxy.secret) %}
                 {% set ns.proxy_domain = proxy.domain %}
                 {% endif %}
                 {% endfor %}
@@ -157,7 +157,7 @@ var usersData = [
     {% if proxy.id == user.proxy_id %}
     {% set ns.proxy_label = proxy.label %}
     {% set ns.proxy_port = proxy.port %}
-    {% set ns.proxy_secret = proxy.secret %}
+    {% set ns.proxy_secret = proxy.secret_hex | default(proxy.secret) %}
     {% set ns.proxy_domain = proxy.domain %}
     {% endif %}
     {% endfor %}

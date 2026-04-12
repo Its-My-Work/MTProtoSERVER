@@ -37,8 +37,9 @@ def save_json(filepath, data):
 def get_proxies():
     return load_json(PROXIES_FILE)
 
-def get_proxy_link(ip, port, secret):
-    return f"tg://proxy?server={ip}&port={port}&secret={secret}"
+def get_proxy_link(ip, port, secret_hex):
+    """Генерирует tg:// ссылку. secret_hex — hex-формат секрета для Telegram."""
+    return f"tg://proxy?server={ip}&port={port}&secret={secret_hex}"
 
 def generate_qr(link):
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
@@ -122,7 +123,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status = "✅" if p.get('enabled', True) else "❌"
             msg += f"{status} *{p['label']}*\n"
             msg += f"   Порт: `{p['port']}` | Домен: `{p['domain']}`\n"
-            link = get_proxy_link(PROXY_IP, p['port'], p['secret'])
+            link = get_proxy_link(PROXY_IP, p['port'], p.get('secret_hex', p['secret']))
             msg += f"   `{link[:50]}...`\n\n"
 
         keyboard = []
@@ -147,7 +148,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
 
         if target:
-            link = get_proxy_link(PROXY_IP, target['port'], target['secret'])
+            link = get_proxy_link(PROXY_IP, target['port'], target.get('secret_hex', target['secret']))
             qr_image = generate_qr(link)
             await query.message.reply_photo(
                 photo=qr_image,
@@ -319,7 +320,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users_data['next_id'] = next_id + 1
         save_json(USERS_FILE, users_data)
 
-        link = get_proxy_link(PROXY_IP, target_proxy['port'], target_proxy['secret'])
+        link = get_proxy_link(PROXY_IP, target_proxy['port'], target_proxy.get('secret_hex', target_proxy['secret']))
         qr_image = generate_qr(link)
 
         await update.message.reply_text(

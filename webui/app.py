@@ -72,8 +72,39 @@ def save_proxies(proxies):
     save_json(PROXIES_FILE, proxies)
 
 
-def get_proxy_link(ip, port, secret):
-    return f"tg://proxy?server={ip}&port={port}&secret={secret}"
+def get_proxy_link(ip, port, secret_hex):
+    """Генерирует tg:// ссылку. secret_hex — hex-формат секрета для Telegram."""
+    return f"tg://proxy?server={ip}&port={port}&secret={secret_hex}"
+
+
+def generate_mtg_secret(domain: str) -> tuple:
+    """
+    Генерирует секрет через mtg (nineseconds/mtg:2).
+    Возвращает (secret_base64, secret_hex).
+    secret_base64 — для docker-compose/mtg конфига.
+    secret_hex — для tg:// ссылок.
+    """
+    try:
+        result_b64 = subprocess.run(
+            ['docker', 'run', '--rm', 'nineseconds/mtg:2', 'generate-secret', domain],
+            capture_output=True, text=True, timeout=30
+        )
+        if result_b64.returncode != 0 or not result_b64.stdout.strip():
+            raise RuntimeError(f"mtg generate-secret failed: {result_b64.stderr}")
+        secret_b64 = result_b64.stdout.strip()
+
+        result_hex = subprocess.run(
+            ['docker', 'run', '--rm', 'nineseconds/mtg:2', 'generate-secret', '--hex', domain],
+            capture_output=True, text=True, timeout=30
+        )
+        if result_hex.returncode != 0 or not result_hex.stdout.strip():
+            raise RuntimeError(f"mtg generate-secret --hex failed: {result_hex.stderr}")
+        secret_hex = result_hex.stdout.strip()
+
+        return secret_b64, secret_hex
+    except Exception as e:
+        logging.error(f"Ошибка генерации секрета через mtg: {e}")
+        raise
 
 
 def get_proxy_stats():
@@ -469,7 +500,7 @@ async def add_user(request: Request):
     link = get_proxy_link(
         get_settings().get('proxy_ip', '0.0.0.0'),
         target_proxy['port'],
-        target_proxy['secret']
+        target_proxy.get('secret_hex', target_proxy['secret'])
     )
     return JSONResponse({'status': 'ok', 'secret': new_secret, 'link': link})
 
@@ -522,9 +553,11 @@ async def add_proxy(request: Request):
     proxies = proxies_data.get('proxies', [])
     next_id = proxies_data.get('next_id', 1)
 
-    domain_hex = domain.encode().hex()
-    random_part = sec.token_hex(14)
-    secret = f"ee{random_part}{domain_hex}"
+    # Генерация секрета через mtg (правильный формат)
+    try:
+        secret, secret_hex = generate_mtg_secret(domain)
+    except Exception as e:
+        return JSONResponse({'status': 'error', 'message': f'Ошибка генерации секрета: {e}'}, status_code=500)
 
     new_proxy = {
         'id': next_id,
@@ -532,6 +565,7 @@ async def add_proxy(request: Request):
         'port': port,
         'domain': domain,
         'secret': secret,
+        'secret_hex': secret_hex,
         'enabled': True,
         'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'connections': 0,
@@ -548,8 +582,8 @@ async def add_proxy(request: Request):
     settings['proxy_count'] = len(proxies)
     save_json(SETTINGS_FILE, settings)
 
-    link = get_proxy_link(settings.get('proxy_ip', '0.0.0.0'), port, secret)
-    return JSONResponse({'status': 'ok', 'secret': secret, 'link': link})
+    link = get_proxy_link(settings.get('proxy_ip', '0.0.0.0'), port, secret_hex)
+    return JSONResponse({'status': 'ok', 'secret': secret, 'secret_hex': secret_hex, 'link': link})
 
 
 @app.post("/api/proxies/{proxy_id}/toggle")
@@ -699,7 +733,7 @@ async def api_v1_add_client(request: Request):
     link = get_proxy_link(
         settings.get('proxy_ip', '0.0.0.0'),
         target_proxy['port'],
-        target_proxy['secret']
+        target_proxy.get('secret_hex', target_proxy['secret'])
     )
     return JSONResponse({
         'status': 'ok',

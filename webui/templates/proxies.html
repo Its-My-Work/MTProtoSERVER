@@ -50,7 +50,7 @@
                     <td>{{ proxy.created_at | default('—') }}</td>
                     <td><code class="secret-code">{{ proxy.secret[:16] }}...</code></td>
                     <td class="actions-cell">
-                        <button class="btn btn-sm" onclick="copyProxyLink('{{ settings.proxy_ip }}', {{ proxy.port }}, '{{ proxy.secret }}')">📋 Ссылка</button>
+                        <button class="btn btn-sm" onclick="copyProxyLink('{{ settings.proxy_ip }}', {{ proxy.port }}, '{{ proxy.secret_hex | default(proxy.secret) }}')">📋 Ссылка</button>
                         <button class="btn btn-sm" onclick="toggleProxy({{ proxy.id }})">
                             {% if proxy.enabled %}⏸️{% else %}▶️{% endif %}
                         </button>

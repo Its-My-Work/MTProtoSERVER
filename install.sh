@@ -49,6 +49,7 @@ PROXY_COUNT=1
 declare -a PROXY_PORTS=()
 declare -a PROXY_DOMAINS=()
 declare -a PROXY_SECRETS=()
+declare -a PROXY_SECRETS_HEX=()
 declare -a PROXY_LABELS=()
 
 # ============================================================
@@ -108,17 +109,34 @@ get_server_ip() {
     fi
 }
 
-generate_secret() {
-    PROXY_SECRET=$(openssl rand -hex 16)
-    log_ok "Секрет сгенерирован: ${E_KEY} $PROXY_SECRET"
-}
+# DEPRECATED: Старые функции генерации секрета (не используются, оставлены для справки)
+# generate_secret() { PROXY_SECRET=$(openssl rand -hex 16); }
+# generate_ee_secret() { ... }
+# Вместо них используется generate_mtg_secret() ниже
 
-generate_ee_secret() {
+# Генерация секрета через mtg (правильный формат для nineseconds/mtg:2)
+# Возвращает два значения через глобальные переменные:
+#   MTG_SECRET      — base64 секрет для mtg (docker-compose, конфиг)
+#   MTG_SECRET_HEX  — hex секрет для tg:// ссылок
+generate_mtg_secret() {
     local domain="$1"
-    local domain_hex=$(echo -n "$domain" | xxd -p | tr -d '\n')
-    local random_part=$(openssl rand -hex 14)
-    PROXY_SECRET="ee${random_part}${domain_hex}"
-    log_ok "FakeTLS секрет сгенерирован для домена: $domain"
+
+    # Подтягиваем образ если ещё не скачан
+    docker pull nineseconds/mtg:2 -q >/dev/null 2>&1 || true
+
+    MTG_SECRET=$(docker run --rm nineseconds/mtg:2 generate-secret "$domain" 2>/dev/null)
+    if [ -z "$MTG_SECRET" ]; then
+        log_err "Не удалось сгенерировать секрет через mtg! Проверьте Docker."
+        exit 1
+    fi
+
+    MTG_SECRET_HEX=$(docker run --rm nineseconds/mtg:2 generate-secret --hex "$domain" 2>/dev/null)
+    if [ -z "$MTG_SECRET_HEX" ]; then
+        log_err "Не удалось сгенерировать hex-секрет через mtg!"
+        exit 1
+    fi
+
+    log_ok "FakeTLS секрет сгенерирован через mtg для домена: $domain"
 }
 
 # ============================================================
@@ -211,6 +229,12 @@ step_install_docker() {
         exit 1
     fi
 
+    # Предзагрузка образа mtg для генерации секретов
+    log_info "Загрузка образа nineseconds/mtg:2..."
+    docker pull nineseconds/mtg:2 -q >/dev/null 2>&1 && \
+        log_ok "Образ mtg загружен" || \
+        log_warn "Не удалось загрузить образ mtg (будет загружен позже)"
+
     read -p "Нажмите Enter для продолжения..."
 }
 
@@ -296,13 +320,11 @@ step_proxy_config() {
         log_ok "Порт прокси #${i}: $current_port"
         echo ""
 
-        # Генерация секрета
-        current_secret=""
-        local domain_hex=$(echo -n "$current_domain" | xxd -p | tr -d '\n')
-        local random_part=$(openssl rand -hex 14)
-        current_secret="ee${random_part}${domain_hex}"
-        PROXY_SECRETS+=("$current_secret")
-        log_ok "FakeTLS секрет #${i} сгенерирован ${E_KEY}"
+        # Генерация секрета через mtg (правильный формат)
+        generate_mtg_secret "$current_domain"
+        PROXY_SECRETS+=("$MTG_SECRET")
+        PROXY_SECRETS_HEX+=("$MTG_SECRET_HEX")
+        log_ok "FakeTLS секрет #${i} сгенерирован через mtg ${E_KEY}"
         echo ""
     done
 
@@ -310,6 +332,7 @@ step_proxy_config() {
     PROXY_PORT="${PROXY_PORTS[0]}"
     FAKE_DOMAIN="${PROXY_DOMAINS[0]}"
     PROXY_SECRET="${PROXY_SECRETS[0]}"
+    PROXY_SECRET_HEX="${PROXY_SECRETS_HEX[0]}"
 
     # Порт Web UI
     read -p "Порт Web UI [8080]: " webui_input
@@ -550,6 +573,7 @@ MTCONF2_EOF
             "port": ${PROXY_PORTS[$i]},
             "domain": "${PROXY_DOMAINS[$i]}",
             "secret": "${PROXY_SECRETS[$i]}",
+            "secret_hex": "${PROXY_SECRETS_HEX[$i]}",
             "enabled": true,
             "created_at": "$(date '+%Y-%m-%d %H:%M:%S')",
             "connections": 0,
@@ -574,6 +598,7 @@ PENTRY_EOF
             "label": "admin",
             "proxy_id": 1,
             "secret": "${PROXY_SECRET}",
+            "secret_hex": "${PROXY_SECRET_HEX}",
             "enabled": true,
             "created_at": "$(date '+%Y-%m-%d %H:%M:%S')",
             "max_connections": 0,
@@ -828,7 +853,7 @@ step_summary() {
     for i in $(seq 0 $((PROXY_COUNT - 1))); do
         echo -e "  ${E_ARROW} ${CYAN}${PROXY_LABELS[$i]}${NC}"
         echo -e "     Порт: ${PROXY_PORTS[$i]} | Домен: ${PROXY_DOMAINS[$i]}"
-        echo -e "     ${CYAN}tg://proxy?server=${SERVER_IP}&port=${PROXY_PORTS[$i]}&secret=${PROXY_SECRETS[$i]}${NC}"
+        echo -e "     ${CYAN}tg://proxy?server=${SERVER_IP}&port=${PROXY_PORTS[$i]}&secret=${PROXY_SECRETS_HEX[$i]}${NC}"
         echo ""
     done
 
