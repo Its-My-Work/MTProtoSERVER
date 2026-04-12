@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import secrets as sec
+import base64
 import psutil
 import logging
 import asyncio
@@ -79,31 +80,24 @@ def get_proxy_link(ip, port, secret_hex):
 
 def generate_mtg_secret(domain: str) -> tuple:
     """
-    Генерирует секрет через mtg (nineseconds/mtg:2).
+    Генерирует секрет для mtg v2 (FakeTLS) на чистом Python.
+    Формат: 0xee + 16 случайных байт + домен (UTF-8).
     Возвращает (secret_base64, secret_hex).
-    secret_base64 — для docker-compose/mtg конфига.
+    secret_base64 — для docker-compose/mtg конфига (URL-safe base64 без padding).
     secret_hex — для tg:// ссылок.
     """
     try:
-        result_b64 = subprocess.run(
-            ['docker', 'run', '--rm', 'nineseconds/mtg:2', 'generate-secret', domain],
-            capture_output=True, text=True, timeout=30
-        )
-        if result_b64.returncode != 0 or not result_b64.stdout.strip():
-            raise RuntimeError(f"mtg generate-secret failed: {result_b64.stderr}")
-        secret_b64 = result_b64.stdout.strip()
+        tag = b'\xee'
+        random_bytes = sec.token_bytes(16)
+        domain_bytes = domain.encode('utf-8')
+        secret_raw = tag + random_bytes + domain_bytes
 
-        result_hex = subprocess.run(
-            ['docker', 'run', '--rm', 'nineseconds/mtg:2', 'generate-secret', '--hex', domain],
-            capture_output=True, text=True, timeout=30
-        )
-        if result_hex.returncode != 0 or not result_hex.stdout.strip():
-            raise RuntimeError(f"mtg generate-secret --hex failed: {result_hex.stderr}")
-        secret_hex = result_hex.stdout.strip()
+        secret_b64 = base64.urlsafe_b64encode(secret_raw).decode('ascii').rstrip('=')
+        secret_hex = secret_raw.hex()
 
         return secret_b64, secret_hex
     except Exception as e:
-        logging.error(f"Ошибка генерации секрета через mtg: {e}")
+        logging.error(f"Ошибка генерации секрета: {e}")
         raise
 
 
