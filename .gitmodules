@@ -1,0 +1,3 @@
+[submodule "mtg-multi"]
+	path = mtg-multi
+	url = https://github.com/dolonet/mtg-multi.git
