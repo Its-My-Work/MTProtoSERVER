@@ -7,29 +7,6 @@
 </div>
 
 <div class="section">
-    <h3>📊 Текущие настройки MTProto</h3>
-    <p style="color:var(--text-secondary);margin-bottom:12px;">Основные параметры вашего MTProto прокси. IP-адрес, порт, домен маскировки и Ad-Tag для монетизации.</p>
-    <div class="settings-grid">
-        <div class="setting-item">
-            <label>IP сервера</label>
-            <input type="text" value="{{ server_ip }}" class="input" readonly>
-        </div>
-        <div class="setting-item">
-            <label>Основной порт</label>
-            <input type="text" value="{{ settings.proxy_port }}" class="input" readonly>
-        </div>
-        <div class="setting-item">
-            <label>Домен маскировки (FakeTLS)</label>
-            <input type="text" value="{{ settings.fake_domain }}" class="input" readonly id="current-domain-display">
-        </div>
-        <div class="setting-item">
-            <label>Количество прокси</label>
-            <input type="text" value="{{ settings.proxy_count }}" class="input" readonly>
-        </div>
-    </div>
-</div>
-
-<div class="section">
     <h3>➕ Создать новый MTProto прокси</h3>
     <p style="color:var(--text-secondary);margin-bottom:12px;">Создайте дополнительный MTProto прокси на другом порту с другим доменом маскировки. Каждый прокси работает в отдельном Docker контейнере.</p>
     <form id="create-mtproto-form" class="form-grid">
@@ -72,24 +49,6 @@
     </div>
 </div>
 
-
-<div class="section">
-    <h3>🔄 Сменить домен маскировки</h3>
-    <p style="color:var(--text-secondary);margin-bottom:12px;">Если текущий домен заблокирован или вы хотите сменить маскировку. При смене домена автоматически генерируется новый секрет и обновляются все настройки.</p>
-    <form id="domain-form" class="form-inline">
-        <select name="domain" class="input">
-            <option value="cloudflare.com">cloudflare.com (рекомендуется)</option>
-            <option value="1c.ru">1c.ru</option>
-            <option value="sberbank.ru">sberbank.ru</option>
-            <option value="yandex.ru">yandex.ru</option>
-            <option value="mail.ru">mail.ru</option>
-            <option value="vk.com">vk.com</option>
-            <option value="gosuslugi.ru">gosuslugi.ru</option>
-        </select>
-        <button type="submit" class="btn btn-primary">🔄 Сменить домен (новый секрет)</button>
-    </form>
-    <div id="domain-result" class="result-box" style="display:none;"></div>
-</div>
 
 <div class="section">
     <h3>💰 Ad-Tag (монетизация)</h3>
