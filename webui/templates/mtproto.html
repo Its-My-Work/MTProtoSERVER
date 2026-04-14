@@ -72,14 +72,6 @@
     </div>
 </div>
 
-<div class="section">
-    <h3>🔑 Генерация секрета</h3>
-    <p style="color:var(--text-secondary);margin-bottom:12px;">Сгенерируйте новый секрет для MTProto прокси. Секрет привязан к текущему домену маскировки. После смены секрета старые ссылки перестанут работать — нужно будет выдать новые.</p>
-    <div class="form-inline">
-        <button class="btn btn-primary" onclick="generateSecret()">🔑 Сгенерировать секрет</button>
-    </div>
-    <div id="secret-result" class="result-box" style="display:none;"></div>
-</div>
 
 <div class="section">
     <h3>🔄 Сменить домен маскировки</h3>
@@ -200,21 +192,6 @@ document.getElementById('create-mtproto-form').addEventListener('submit', async 
         result.textContent = '❌ Ошибка: ' + err.message;
     }
 });
-
-// Generate secret
-async function generateSecret() {
-    const res = await fetch('/api/mtproto/generate-secret');
-    const data = await res.json();
-    const r = document.getElementById('secret-result');
-    r.style.display = 'block';
-    r.className = 'result-box success';
-    const link = `tg://proxy?server=${serverIp}&port={{ settings.proxy_port }}&secret=${data.secret}`;
-    r.innerHTML = `<p>✅ Новый секрет:</p>
-        <code style="word-break:break-all;" id="new-secret">${data.secret}</code>
-        <p style="margin-top:8px;">Домен: <strong>${data.domain}</strong></p>
-        <p>Ссылка: <code id="new-link">${link}</code></p>
-        <button class="btn btn-sm" onclick="copyText('${link}')">📋 Копировать ссылку</button>`;
-}
 
 // Change domain + generate new secret
 document.getElementById('domain-form').addEventListener('submit', async (e) => {

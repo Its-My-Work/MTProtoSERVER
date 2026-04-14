@@ -158,9 +158,10 @@ def docker_ps():
     try:
         r = subprocess.run(['docker','ps','-a','--format','{{.Names}}|{{.Status}}|{{.Ports}}'], capture_output=True, text=True, timeout=10)
         cs = []
+        project_containers = ['mtproto-proxy', 'mtproto-webui', 'mtproto-bot']
         for l in r.stdout.strip().split('\n'):
             p = l.split('|')
-            if len(p) >= 3: cs.append({'name':p[0],'status':p[1],'ports':p[2]})
+            if len(p) >= 3 and p[0] in project_containers: cs.append({'name':p[0],'status':p[1],'ports':p[2]})
         return cs
     except: return []
 
@@ -256,50 +257,20 @@ async def dashboard(request: Request):
 async def clients_page(request: Request):
     c = ctx(request)
     # Get live data from proxies
-    live_proxies = get_all_mtproto()
-    # Also get from proxies.json for editing info
+    # Get from proxies.json for proxy info
     pd = load_json(os.path.join(DATA_DIR, 'proxies.json'))
     proxies = pd.get('proxies', [])
     cd = get_clients()
     clients = cd.get('clients', [])
-    # Merge: use live data for stats, proxies.json for config
+    # Show only clients from clients.json
     all_clients = []
-    for lp in live_proxies:
-        # Find matching proxy in proxies.json
-        match = None
-        for p in proxies:
-            if p.get('label') == lp.get('label'):
-                match = p
-                break
-        all_clients.append({
-            'id': match.get('id', 0) if match else 0,
-            'label': lp.get('label', ''),
-            'port': lp.get('port', 0),
-            'domain': lp.get('domain', ''),
-            'secret': lp.get('secret', ''),
-            'enabled': True,
-            'created_at': match.get('created_at', '') if match else '',
-            'rx_bytes': lp.get('rx_bytes', 0),
-            'tx_bytes': lp.get('tx_bytes', 0),
-            'unique_ips': lp.get('unique_ips', 0),
-            'connected_ips': lp.get('connected_ips', []),
-            'connections': match.get('connections', 0) if match else 0,
-            'traffic_limit_gb': match.get('traffic_limit_gb', 0) if match else 0,
-            'device_limit': match.get('device_limit', 0) if match else 0,
-            'expiry_date': match.get('expiry_date', '') if match else '',
-            'auto_reset': match.get('auto_reset', 'never') if match else 'never',
-            'history': []
-        })
-    # Also add clients from clients.json
     for cl in clients:
-        exists = any(x['label'] == cl.get('label') for x in all_clients)
-        if not exists:
-            # Find proxy label
-            proxy_id = cl.get('proxy_id', 0)
-            proxy = next((p for p in proxies if p.get('id') == proxy_id), None)
-            proxy_label = proxy.get('label', 'Unknown') if proxy else 'Unknown'
-            cl['proxy_label'] = proxy_label
-            all_clients.append(cl)
+        # Find proxy label
+        proxy_id = cl.get('proxy_id', 0)
+        proxy = next((p for p in proxies if p.get('id') == proxy_id), None)
+        proxy_label = proxy.get('label', 'Unknown') if proxy else 'Unknown'
+        cl['proxy_label'] = proxy_label
+        all_clients.append(cl)
     c.update({'clients': all_clients, 'nodes': get_nodes().get('nodes', [])})
     return templates.TemplateResponse("clients.html", c)
 
@@ -446,6 +417,12 @@ async def get_history(cid:int):
     for c in cd.get('clients',[]):
         if c['id']==cid: return JSONResponse({'history':c.get('history',[])})
     return JSONResponse({'history':[]})
+
+@app.get("/api/mtproto/list")
+async def list_mtproto_proxies():
+    pd = load_json(os.path.join(DATA_DIR, 'proxies.json'))
+    proxies = pd.get('proxies', [])
+    return {"proxies": proxies}
 
 # NODES API
 @app.post("/api/nodes/add")
@@ -998,19 +975,6 @@ async def public_mtproto():
     """Публичный API — только MTProto прокси (массив ссылок)"""
     proxies = get_all_mtproto()
     return JSONResponse({'proxies': proxies, 'updated': datetime.now().strftime('%Y-%m-%dT%H:%M:%S')})
-
-@app.get("/api/public/docs", response_class=HTMLResponse)
-async def public_docs(request: Request):
-    """Страница документации публичного API"""
-    s = get_settings()
-    ip = s.get('proxy_ip', '0.0.0.0')
-    port = s.get('webui_port', 8080)
-    base_url = f"http://{ip}:{port}"
-    return templates.TemplateResponse("public_docs.html", {
-        'request': request, 'base_url': base_url, 'server_ip': ip,
-        'has_logo': os.path.exists(LOGO_FILE), 'lang': 'ru', 'now': datetime.now().strftime('%Y-%m-%d'),
-        'settings': s
-    })
 
 # SECURITY API
 @app.get("/api/security/ip-lists")

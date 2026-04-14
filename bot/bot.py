@@ -345,7 +345,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users_data['next_id'] = next_id + 1
         save_json(USERS_FILE, users_data)
 
-        link = get_proxy_link(PROXY_IP, target_proxy['port'], target_proxy['secret'])
+        link = get_proxy_link(PROXY_IP, target_proxy['port'], new_secret)
         qr_image = generate_qr(link)
 
         await update.message.reply_text(
