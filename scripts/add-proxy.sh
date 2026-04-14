@@ -92,23 +92,12 @@ done
 
 log_ok "Порт: $port"
 
-# Генерация секрета через mtg (правильный формат)
-log_info "Генерация секрета через mtg..."
-docker pull nineseconds/mtg:2 -q >/dev/null 2>&1 || true
+# Генерация секрета
+domain_hex=$(echo -n "$fake_domain" | xxd -p | tr -d '\n')
+random_part=$(openssl rand -hex 14)
+secret="ee${random_part}${domain_hex}"
 
-secret=$(docker run --rm nineseconds/mtg:2 generate-secret "$fake_domain" 2>/dev/null)
-if [ -z "$secret" ]; then
-    log_err "Не удалось сгенерировать секрет через mtg! Проверьте Docker."
-    exit 1
-fi
-
-secret_hex=$(docker run --rm nineseconds/mtg:2 generate-secret --hex "$fake_domain" 2>/dev/null)
-if [ -z "$secret_hex" ]; then
-    log_err "Не удалось сгенерировать hex-секрет через mtg!"
-    exit 1
-fi
-
-log_ok "Секрет сгенерирован через mtg: ${E_KEY}"
+log_ok "Секрет сгенерирован: ${E_KEY}"
 
 # Получаем IP
 SERVER_IP=$(grep -o '"proxy_ip"[[:space:]]*:[[:space:]]*"[^"]*"' "$SETTINGS_FILE" 2>/dev/null | cut -d'"' -f4 || echo "0.0.0.0")
@@ -133,7 +122,6 @@ if [ -f "$PROXIES_FILE" ]; then
             "port": ${port},
             "domain": "${fake_domain}",
             "secret": "${secret}",
-            "secret_hex": "${secret_hex}",
             "enabled": true,
             "created_at": "$(date '+%Y-%m-%d %H:%M:%S')",
             "connections": 0,
@@ -154,7 +142,6 @@ else
             "port": ${port},
             "domain": "${fake_domain}",
             "secret": "${secret}",
-            "secret_hex": "${secret_hex}",
             "enabled": true,
             "created_at": "$(date '+%Y-%m-%d %H:%M:%S')",
             "connections": 0,
@@ -178,9 +165,9 @@ cat >> "$COMPOSE_FILE" << COMPOSE_ADD_EOF
       - "${port}:${port}"
     command: >
       simple-run
+      -a ${secret}
       --prefer-ip=prefer-ipv4
       0.0.0.0:${port}
-      ${secret}
     volumes:
       - ./data/mtproxy-${label}:/data
     networks:
@@ -234,9 +221,8 @@ echo -e "${WHITE}  Метка:    ${CYAN}${label}${NC}"
 echo -e "${WHITE}  Порт:     ${CYAN}${port}${NC}"
 echo -e "${WHITE}  Домен:    ${CYAN}${fake_domain}${NC}"
 echo -e "${WHITE}  Секрет:   ${CYAN}${secret}${NC}"
-echo -e "${WHITE}  Hex:      ${CYAN}${secret_hex}${NC}"
 echo ""
 echo -e "${WHITE}  Ссылка:${NC}"
-echo -e "${CYAN}   tg://proxy?server=${SERVER_IP}&port=${port}&secret=${secret_hex}${NC}"
+echo -e "${CYAN}   tg://proxy?server=${SERVER_IP}&port=${port}&secret=${secret}${NC}"
 echo ""
 print_sep

@@ -4,7 +4,6 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import json, os, subprocess, secrets as sec, psutil, io, qrcode, time, zipfile, tempfile
-import tomllib, tomli_w
 from datetime import datetime, timedelta
 
 def generate_faketls_secret(domain: str) -> str:
@@ -88,65 +87,6 @@ def get_auth(): return load_json(AUTH_FILE)
 def save_auth(d): save_json(AUTH_FILE, d)
 
 def proxy_link(ip, port, secret): return f"tg://proxy?server={ip}&port={port}&secret={secret}"
-
-def update_mtg_config():
-    """
-    Обновляет config.toml MTG с всеми активными секретами и портами из proxies.json.
-    """
-    pd = load_json(os.path.join(DATA_DIR, 'proxies.json'))
-    proxies = pd.get('proxies', [])
-
-    # Собираем уникальные порты
-    unique_ports = list(set(p['port'] for p in proxies if p.get('enabled', True)))
-    unique_ports.sort()
-
-    # Собираем все активные секреты: base прокси + клиенты
-    clients = get_clients()['clients']
-    all_secrets = []
-    for proxy in proxies:
-        if proxy.get('enabled', True):
-            all_secrets.append(proxy['secret'])
-            proxy_clients = [c['secret'] for c in clients if c.get('proxy_id') == proxy['id'] and c.get('enabled', True)]
-            all_secrets.extend(proxy_clients)
-
-    # Путь к config.toml
-    config_path = '/app/data/proxy.toml'
-
-    # Читаем текущий config
-    if os.path.exists(config_path):
-        with open(config_path, 'rb') as f:
-            config = tomllib.load(f)
-    else:
-        config = {
-            "bind-to": [],
-            "fake_tls_domain": "yandex.ru",
-            "prefer_ip": "prefer-ipv4",
-            "secrets": {},
-            "anti_replay": {"enabled": True, "max_size": 16384},
-            "timeouts": {"inactivity": 300, "keepalive": 60},
-            "stats": {"enabled": True, "stats_file": "/data/stats.json"}
-        }
-
-    # Обновляем bind-to
-    config["bind-to"] = [f"0.0.0.0:{port}" for port in unique_ports]
-
-    # Обновляем секреты: генерируем dict с ключами user1, user2, ...
-    secrets_dict = {}
-    for i, secret in enumerate(all_secrets, start=1):
-        secrets_dict[f"user{i}"] = secret
-    config["secrets"] = secrets_dict
-
-    # Записываем config
-    with open(config_path, 'wb') as f:
-        tomli_w.dump(config, f)
-
-    # Перезагружаем MTG
-    try:
-        subprocess.run(['docker', 'exec', 'mtproto-proxy', 'kill', '-HUP', '1'], check=False)
-    except:
-        pass
-
-
 
 def compose(args, timeout=60):
     try:
@@ -294,11 +234,6 @@ async def clients_page(request: Request):
     for cl in clients:
         exists = any(x['label'] == cl.get('label') for x in all_clients)
         if not exists:
-            # Find proxy label
-            proxy_id = cl.get('proxy_id', 0)
-            proxy = next((p for p in proxies if p.get('id') == proxy_id), None)
-            proxy_label = proxy.get('label', 'Unknown') if proxy else 'Unknown'
-            cl['proxy_label'] = proxy_label
             all_clients.append(cl)
     c.update({'clients': all_clients, 'nodes': get_nodes().get('nodes', [])})
     return templates.TemplateResponse("clients.html", c)
@@ -353,85 +288,41 @@ async def mtproto_page(request: Request): return templates.TemplateResponse("mtp
 # CLIENTS API
 @app.post("/api/clients/add")
 async def add_client(request: Request):
-    try:
-        form = await request.form()
-        label = form.get('label','client')
-        pid_str = form.get('proxy_id', '0')
-        pid = 0 if pid_str == 'undefined' else int(pid_str or 0)
-        if pid == 0:
-            return JSONResponse({'status':'error','message':'Выберите прокси'})
-        tlg_str = form.get('traffic_limit_gb', '0')
-        tlg = 0.0 if tlg_str == 'undefined' else float(tlg_str or 0)
-        dl_str = form.get('device_limit', '0')
-        dl = 0 if dl_str == 'undefined' else int(dl_str or 0)
-        ed_str = form.get('expiry_days', '0')
-        ed = 0 if ed_str == 'undefined' else int(ed_str or 0)
-        s = get_settings(); cd = get_clients(); cl = cd.get('clients',[]); nid2 = cd.get('next_id',1)
-
-        # Получаем данные прокси
-        pd = load_json(os.path.join(DATA_DIR, 'proxies.json'))
-        proxy = next((p for p in pd.get('proxies', []) if p['id'] == pid), None)
-        if not proxy:
-            return JSONResponse({'status':'error','message':'Прокси не найден'})
-
-        port = proxy['port']
-        dom = proxy['domain']
-        node_ip = s.get('proxy_ip','0.0.0.0')
-        secret = generate_faketls_secret(dom)
-
-        exp = (datetime.now()+timedelta(days=ed)).strftime('%Y-%m-%d') if ed>0 else ''
-        cl.append({'id':nid2,'label':label,'proxy_id':pid,'port':port,'domain':dom,'secret':secret,'enabled':True,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'traffic_limit_gb':tlg,'device_limit':dl,'expiry_date':exp,'auto_reset':form.get('auto_reset','never'),'rx_bytes':0,'tx_bytes':0,'unique_ips':0,'connections':0,'history':[]})
-        cd['clients']=cl; cd['next_id']=nid2+1; save_clients(cd)
-
-        # Обновляем config MTG с новыми секретами
-        update_mtg_config()
-
-        return JSONResponse({'status':'ok','secret':secret,'link':proxy_link(node_ip,port,secret),'port':port,'client_id':nid2,'node_ip':node_ip})
-    except Exception as e:
-        return JSONResponse({'status':'error','message':str(e)})
+    form = await request.form()
+    label = form.get('label','client'); nid = int(form.get('node_id',0) or 0)
+    tlg = float(form.get('traffic_limit_gb',0) or 0); dl = int(form.get('device_limit',0) or 0)
+    ed = int(form.get('expiry_days',0) or 0)
+    s = get_settings(); cd = get_clients(); cl = cd.get('clients',[]); nid2 = cd.get('next_id',1)
+    dom = form.get('domain', s.get('fake_domain','cloudflare.com'))
+    secret = generate_faketls_secret(dom)
+    port = 443 + nid2
+    exp = (datetime.now()+timedelta(days=ed)).strftime('%Y-%m-%d') if ed>0 else ''
+    cl.append({'id':nid2,'label':label,'node_id':nid,'port':port,'domain':dom,'secret':secret,'enabled':True,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'traffic_limit_gb':tlg,'device_limit':dl,'expiry_date':exp,'auto_reset':form.get('auto_reset','never'),'rx_bytes':0,'tx_bytes':0,'unique_ips':0,'connections':0,'history':[]})
+    cd['clients']=cl; cd['next_id']=nid2+1; save_clients(cd)
+    try: subprocess.run(['ufw','allow',str(port)+'/tcp'], capture_output=True, timeout=10)
+    except: pass
+    return JSONResponse({'status':'ok','secret':secret,'link':proxy_link(s.get('proxy_ip','0.0.0.0'),port,secret),'port':port})
 
 @app.post("/api/clients/{cid}/toggle")
 async def toggle_client(cid:int):
     cd=get_clients()
-    proxy_id = None
     for c in cd.get('clients',[]):
-        if c['id']==cid:
-            c['enabled']=not c.get('enabled',True)
-            proxy_id = c.get('proxy_id', 0)
-            break
-    save_clients(cd)
-    if proxy_id is not None:
-        update_mtg_config()
-    return JSONResponse({'status':'ok'})
+        if c['id']==cid: c['enabled']=not c.get('enabled',True); break
+    save_clients(cd); return JSONResponse({'status':'ok'})
 
 @app.post("/api/clients/{cid}/delete")
 async def delete_client(cid:int):
-    cd=get_clients()
-    proxy_id = None
-    for c in cd.get('clients',[]):
-        if c['id']==cid:
-            proxy_id = c.get('proxy_id', 0)
-            break
-    cd['clients']=[c for c in cd.get('clients',[]) if c['id']!=cid]; save_clients(cd)
-    if proxy_id is not None:
-        update_mtg_config()
-    return JSONResponse({'status':'ok'})
+    cd=get_clients(); cd['clients']=[c for c in cd.get('clients',[]) if c['id']!=cid]; save_clients(cd); return JSONResponse({'status':'ok'})
 
 @app.post("/api/clients/{cid}/rotate")
 async def rotate_client(cid:int):
     cd=get_clients(); s=get_settings()
-    proxy_id = None
-    node_ip = s.get('proxy_ip','0.0.0.0')
     for c in cd.get('clients',[]):
         if c['id']==cid:
             dom = c.get('domain','cloudflare.com')
             c['secret'] = generate_faketls_secret(dom)
-            proxy_id = c.get('proxy_id', 0)
             break
-    save_clients(cd)
-    if proxy_id is not None:
-        update_mtg_config()
-    return JSONResponse({'status':'ok','secret':c['secret'],'link':proxy_link(node_ip,c['port'],c['secret'])})
+    save_clients(cd); return JSONResponse({'status':'ok','secret':c['secret'],'link':proxy_link(s.get('proxy_ip','0.0.0.0'),c['port'],c['secret'])})
 
 @app.post("/api/clients/{cid}/reset-traffic")
 async def reset_traffic(cid:int):
@@ -451,13 +342,8 @@ async def get_history(cid:int):
 @app.post("/api/nodes/add")
 async def add_node(request: Request):
     form=await request.form(); nd=get_nodes(); ns=nd.get('nodes',[]); nid=nd.get('next_id',1)
-    port = int(form.get('port',9876) or 9876)
-    ns.append({'id':nid,'name':form.get('name','node'),'ip':form.get('ip',''),'port':port,'country':form.get('country','🌍'),'token':form.get('token',''),'auth_type':form.get('auth_type','token'),'ssh_user':form.get('ssh_user',''),'ssh_pass':form.get('ssh_pass',''),'ssh_key':form.get('ssh_key',''),'enabled':True,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'last_ping':'','status':'unknown'})
-    nd['nodes']=ns; nd['next_id']=nid+1; save_nodes(nd)
-    # Добавляем ufw правило для порта ноды
-    try: subprocess.run(['ufw','allow',str(port)+'/tcp'], capture_output=True, timeout=10)
-    except: pass
-    return JSONResponse({'status':'ok'})
+    ns.append({'id':nid,'name':form.get('name','node'),'ip':form.get('ip',''),'port':int(form.get('port',9876) or 9876),'country':form.get('country','🌍'),'token':form.get('token',''),'auth_type':form.get('auth_type','token'),'ssh_user':form.get('ssh_user',''),'ssh_pass':form.get('ssh_pass',''),'ssh_key':form.get('ssh_key',''),'enabled':True,'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),'last_ping':'','status':'unknown'})
+    nd['nodes']=ns; nd['next_id']=nid+1; save_nodes(nd); return JSONResponse({'status':'ok'})
 
 @app.post("/api/nodes/{nid}/toggle")
 async def toggle_node(nid:int):
@@ -747,10 +633,17 @@ async def create_mtproto(request: Request):
     # Update proxy count
     s['proxy_count'] = s.get('proxy_count', 1) + 1
     save_settings(s)
-    # Update MTG config with new proxy
-    update_mtg_config()
+    # Try to create container (may fail inside container, but proxy is already saved)
+    container_name = f'mtproto-proxy-{label}'
+    try:
+        subprocess.run(['docker', 'rm', '-f', container_name], capture_output=True, timeout=10)
+        subprocess.run(['docker', 'run', '-d', '--name', container_name, '--restart', 'unless-stopped',
+                       '-p', f'{port}:{port}', '--network', 'mtprotoserver_mtproto-net',
+                       'nineseconds/mtg:2', 'simple-run', '-n', '1.1.1.1', '-i', 'prefer-ipv4',
+                       f'0.0.0.0:{port}', secret], capture_output=True, timeout=30)
+    except: pass
     return JSONResponse({'status': 'ok', 'label': label, 'port': port, 'secret': secret,
-                         'link': proxy_link(s.get('proxy_ip', '0.0.0.0'), port, secret)})
+                        'link': proxy_link(s.get('proxy_ip', '0.0.0.0'), port, secret)})
 
 # Create new MTProto proxy instance
 @app.post("/api/mtproto/create")
@@ -956,7 +849,6 @@ def get_all_mtproto():
                                         tx_bytes = int(parts[9])
             except: pass
             proxies.append({
-                'id': p.get('id', 0),
                 'label': label,
                 'port': port,
                 'domain': p.get('domain', ''),

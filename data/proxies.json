@@ -1,0 +1,17 @@
+{
+    "proxies": [
+        {
+            "id": 1,
+            "label": "s1",
+            "port": 1443,
+            "domain": "yandex.ru",
+            "secret": "ee526c206b579801b88b081369618779616e6465782e7275",
+            "enabled": true,
+            "created_at": "2026-04-13 22:43:49",
+            "connections": 0,
+            "traffic_in": 0,
+            "traffic_out": 0
+        }
+    ],
+    "next_id": 2
+}

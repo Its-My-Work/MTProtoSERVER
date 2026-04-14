@@ -1,0 +1,62 @@
+services:
+  mtproto-proxy:
+    image: nineseconds/mtg-multi:latest
+    container_name: mtproto-proxy
+    restart: unless-stopped
+    network_mode: host
+    # запускаем mtg через конфиг, а не simple-run
+    command: ["run", "/app/data/proxy.toml"]
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "pgrep", "mtg"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  webui:
+    build: ./webui
+    container_name: mtproto-webui
+    restart: unless-stopped
+    ports:
+      - "8088:8000"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./mtproxy:/app/mtproxy
+      - ./backups:/app/backups
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/mtprotoserver:/opt/mtprotoserver
+      - /proc:/host_proc:ro
+    environment:
+      - PROXY_IP=152.114.192.137
+      - PROXY_COUNT=1
+      - DASHBOARD_PASSWORD=2nn3b2nn3B!!
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - mtproto-proxy
+    networks:
+      - mtproto-net
+
+  bot:
+    build: ./bot
+    container_name: mtproto-bot
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    environment:
+      - BOT_TOKEN=8233330486:AAGEscZjTh4CNMdrEL6f445-tAUOpA1c7Ew
+      - ADMIN_CHAT_ID=376086070
+      - PROXY_IP=152.114.192.137
+      - PROXY_COUNT=1
+    depends_on:
+      - webui
+    networks:
+      - mtproto-net
+
+networks:
+  mtproto-net:
+    driver: bridge
